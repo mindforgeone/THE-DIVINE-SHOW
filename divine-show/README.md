@@ -1,16 +1,26 @@
-# React + Vite
+# 120 дней роста Offer+
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Светлый интерактивный трекер на 120 дней для движения к Offer+, контроля питания, веса, НС-практики и недельных итогов.
 
-Currently, two official plugins are available:
+## Что внутри
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- старт марафона с текущей даты;
+- три результата дня: поддержание, рост, прорыв;
+- XP, уровень, серия, карта 120 дней;
+- графики веса, калорий, времени и Offer+ прогресса;
+- недельные итоги и чекпоинты 7 / 14 / 30 / 60 / 90 / 120;
+- экспорт Markdown и JSON для анализа нейросетью.
 
-## React Compiler
+## Запуск
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm install
+npm run dev
+```
 
-## Expanding the ESLint configuration
+## Проверка
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+npm run lint
+npm run build
+```

@@ -1,1202 +1,1453 @@
-import React, { useState, useEffect, useMemo, useReducer, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Trophy, Flame, AlertCircle, CheckCircle2, XCircle, 
-  RotateCcw, Zap, ShieldCheck, BarChart3, Ghost, 
-  Skull, History, Clock, ZapOff, Bomb, AlertTriangle, Scale, Target, Play, TrendingDown, Activity, Swords, BrainCircuit, Droplets
+import { useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+  Activity,
+  AlertCircle,
+  BarChart3,
+  BrainCircuit,
+  CalendarDays,
+  CheckCircle2,
+  ChevronRight,
+  Copy,
+  Download,
+  FileText,
+  Flag,
+  Flame,
+  Heart,
+  History,
+  LineChart,
+  Lock,
+  Play,
+  RotateCcw,
+  Scale,
+  Sparkles,
+  Star,
+  Target,
+  Timer,
+  Trophy,
+  Utensils,
+  XCircle,
+  Zap,
 } from 'lucide-react';
 
-// ==========================================
-// [1. CONFIGURATION & DOMAIN DATA]
-// ==========================================
-const APP_CONFIG = {
-  TOTAL_DAYS: 120,
-  CHECKPOINT_DAY: 66,
-  SUCCESS_THRESHOLD: 85,
-  STORAGE_KEY: "divine-progress-v13-sustainable",
-  START_DATE: '2026-05-04T00:00:00Z', 
-  MAX_CRITICAL_FAILS: 20,
-  WEIGHT_TARGET: 65,
-  WEIGHT_START: 80,
-};
+const TOTAL_DAYS = 120;
+const STORAGE_KEY = 'offer-growth-120-v1';
+const CALORIE_TOP = 1800;
+const CALORIE_LIMIT = 2300;
+const LEVEL_STEP = 650;
+const CHECKPOINT_DAYS = [7, 14, 30, 60, 90, 120];
 
-const DOMAIN_DATA = {
-  CHALLENGES: [
-    "Разбери типовую конфигурацию 1С (БП, ЗУП, УТ) – найди 3 интересных места.",
-    "Напиши обработку для заполнения табличной части.",
-    "Изучи конструкции языка запросов 1С (объединения, временные таблицы).",
-    "Рефакторинг 30 строк своего старого кода 1С.",
-    "Проведи анализ производительности отчёта (замерь, оптимизируй).",
-    "Посвяти 2 часа чистому 1С без единого отвлечения (таймер включи).",
-    "Создай внешний отчёт с параметрами и схемой компоновки данных."
-  ],
-  MICRO_WINS: [
-    "Выпей стакан чистой воды прямо сейчас.",
-    "Сделай 5 глубоких вдохов-выдохов (по 4 секунды).",
-    "Удали 1 ненужное/отвлекающее приложение с телефона.",
-    "Встань и потянись. Поправь осанку на ближайшие 10 минут.",
-    "Убери 1 лишнюю вещь со своего рабочего стола.",
-    "Закрой глаза и посиди в тишине ровно 60 секунд."
-  ],
-  DIAGNOSTIC_CATEGORIES: [
-    "Сон / Нехватка энергии",
-    "Фокус / Выгорание ЦНС",
-    "Токсичная среда / Отвлечения",
-    "Стресс / Эмоциональный сбой",
-    "Плохое планирование / Хаос"
-  ],
-  STATUS_TIPS: {
-    "ХАОС": "Ты в руинах. Открой 1С хоть на 5 минут. Просто сегодня не сдайся.",
-    "БОРЬБА": "Искра есть. Удержи её. Завтра будет легче, если не сдашься сегодня.",
-    "КОНТРОЛЬ": "Система работает. Ты начинаешь управлять реальностью. Не сбавляй темп.",
-    "ДОМИНИРОВАНИЕ": "Ты — бог 1С. Но бог не расслабляется. Удвой норму: напиши сложный запрос."
+const TIERS = {
+  base: {
+    id: 'base',
+    title: 'Поддержание',
+    short: 'База',
+    xp: 50,
+    color: '#7c9a78',
+    bg: '#eef6e9',
+    border: '#cfe2c8',
+    text: '#365f36',
+    description: 'Минимум закрыт. Ты остался на линии роста.',
   },
-  PAIN_TRIGGERS: [
-    "Если ты не сделаешь это сегодня – завтра будешь тем же ничтожеством, что и вчера.",
-    "Твой оффер на 500к ждёт только того, кто не жалеет себя.",
-    "65 кг – это не цель, это приговор твоему прошлому телу.",
-    "Боль дисциплины весит граммы. Боль сожаления — тонны.",
-    "Никто не придёт тебя спасать. Ты один в этой комнате."
-  ],
-  RANKS: [
-    { level: 1, title: "МЯСО", color: "text-zinc-500", glow: "", bg: "#0a0a0a" },
-    { level: 2, title: "ТЕНЬ", color: "text-red-800", glow: "shadow-[0_0_15px_#450a0a]", bg: "#1a0505" },
-    { level: 3, title: "ИСКРА", color: "text-orange-600", glow: "shadow-[0_0_20px_#7c2d12]", bg: "#1f0d00" },
-    { level: 4, title: "СТАЛЬ", color: "text-yellow-500", glow: "shadow-[0_0_20px_#854d0e]", bg: "#1a1600" },
-    { level: 5, title: "ХИЩНИК", color: "text-emerald-600", glow: "shadow-[0_0_25px_#064e3b]", bg: "#021c0e" },
-    { level: 6, title: "АВТОНОМИЯ", color: "text-emerald-400", glow: "shadow-[0_0_25px_#047857]", bg: "#002414" },
-    { level: 7, title: "АРХИТЕКТОР", color: "text-cyan-600", glow: "shadow-[0_0_30px_#164e63]", bg: "#001a24" },
-    { level: 8, title: "СИСТЕМА", color: "text-cyan-400", glow: "shadow-[0_0_30px_#0891b2]", bg: "#002633" },
-    { level: 9, title: "ВЛАСТЬ", color: "text-violet-500", glow: "shadow-[0_0_40px_#4c1d95]", bg: "#170033" },
-    { level: 10, title: "БОЖЕСТВО", color: "text-white", glow: "shadow-[0_0_50px_#ffffff]", bg: "#050505" },
-  ]
+  growth: {
+    id: 'growth',
+    title: 'Рост',
+    short: 'Рост',
+    xp: 110,
+    color: '#4f8fb9',
+    bg: '#eaf5fb',
+    border: '#c8e1ef',
+    text: '#255b7a',
+    description: 'День заметно двинул Offer+ и тело.',
+  },
+  breakthrough: {
+    id: 'breakthrough',
+    title: 'Прорыв',
+    short: 'Топ',
+    xp: 190,
+    color: '#d18b47',
+    bg: '#fff3df',
+    border: '#f1d2a7',
+    text: '#81501f',
+    description: 'Топовый день. Есть фокус, артефакт и чистая дисциплина.',
+  },
 };
 
-const ACHIEVEMENTS_LIST = [
-  { id: 'first_blood', title: 'ПЕРВАЯ КРОВЬ', desc: 'Зафиксирован первый идеальный день' },
-  { id: 'streak_7', title: 'НЕДЕЛЯ КОНТРОЛЯ', desc: 'Стрик 7 дней подряд' },
-  { id: 'streak_30', title: 'ЖЕЛЕЗНАЯ ВОЛЯ', desc: 'Стрик 30 дней подряд' },
-  { id: 'weight_5', title: '-5 КГ СБРОШЕНО', desc: 'Тело начинает подчиняться' },
-  { id: 'checkpoint_66', title: 'ЧЕКПОЙНТ 66', desc: 'Прошёл Рубикон' },
-  { id: 'divine_120', title: 'БОЖЕСТВО', desc: '120 дней завершены успешно' }
+const ARTIFACT_TYPES = [
+  'Отклик',
+  'Резюме',
+  'Портфолио',
+  'Коммит',
+  'Кейс',
+  'Собеседование',
+  'Тестовое',
+  'Разбор вакансий',
+  'Нетворкинг',
+  'Другое',
 ];
 
-const getDayDateString = (dayNum, startDateStr) => {
-  if (!startDateStr) return '';
-  const d = new Date(new Date(startDateStr).getTime() + (dayNum - 1) * 24 * 60 * 60 * 1000);
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }).replace('.', '');
-};
+const SIGNALS = [
+  { minXp: 1200, text: 'Собран первый устойчивый контур. Движение видно.' },
+  { minXp: 2800, text: 'Появился ритм. Теперь система начинает работать на тебя.' },
+  { minXp: 5200, text: 'Ты уже не вспоминаешь цель. Ты в ней живёшь.' },
+  { minXp: 9000, text: 'Offer+ стал не событием, а следствием твоей траектории.' },
+];
 
-// ==========================================
-// [2. INFRASTRUCTURE & SERVICES] (Side Effects)
-// ==========================================
-const StorageService = {
-  load: () => {
-    try {
-      const data = localStorage.getItem(APP_CONFIG.STORAGE_KEY);
-      return data ? JSON.parse(data) : null;
-    } catch (e) { return null; }
-  },
-  save: (state) => {
-    try { localStorage.setItem(APP_CONFIG.STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
-  }
-};
+const todayKey = () => toDateKey(new Date());
 
-const DeviceService = {
-  vibrate: (pattern) => { if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(pattern); },
-  playSound: (type) => { try { new Audio(`/${type}.mp3`).play().catch(() => {}); } catch (e) {} }
-};
+function toDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
-// ==========================================
-// [3. CORE BUSINESS LOGIC] (Pure Functions)
-// ==========================================
-const CoreEngine = {
-  generateInitialDays: () => Array.from({ length: APP_CONFIG.TOTAL_DAYS }, (_, i) => ({
-    day: i + 1,
-    contractSigned: false, 
-    identityFocus: "", 
-    status: null, 
-    quality: null, 
-    isMissed: false,
-    permanentFail: false, 
-    nutrition: false,
-    study: false,
-    penaltyCount: 0, 
-    extraTask1: false,
-    extraTask2: false,
-    winText: "",
-    diagnosticCategory: "", 
-    microFix: "", 
-    weight: "",
-    offerAction: "",
-    late: false,
-    closedAt: null
-  })),
+function dateFromKey(key) {
+  return new Date(`${key}T00:00:00`);
+}
 
-  calculateCurrentDayIndex: (startDateISO, currentTimestamp) => {
-    const start = new Date(startDateISO).getTime();
-    const diffDays = Math.floor((currentTimestamp - start) / (1000 * 60 * 60 * 24));
-    return diffDays < 0 ? 0 : Math.max(0, Math.min(APP_CONFIG.TOTAL_DAYS - 1, diffDays));
-  },
+function addDays(dateKey, offset) {
+  const date = dateFromKey(dateKey);
+  date.setDate(date.getDate() + offset);
+  return toDateKey(date);
+}
 
-  calculateStats: (daysArray) => {
-    let currentStreak = 0, maxStreak = 0, successCount = 0, passedDaysCount = 0;
-    let criticalFails = 0, nutritionFails = 0, studyFails = 0, lastWeight = 0;
-    let consecutiveFails = 0; 
+function formatDate(dateKey) {
+  return dateFromKey(dateKey).toLocaleDateString('ru-RU', {
+    day: 'numeric',
+    month: 'short',
+  }).replace('.', '');
+}
 
-    daysArray.forEach(d => {
-      if (d.status === null) return; 
-      
-      passedDaysCount++;
-      if (d.weight) lastWeight = parseFloat(d.weight);
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
 
-      if (d.status === 'success') {
-        currentStreak++;
-        successCount++;
-        consecutiveFails = 0;
-      } else {
-        maxStreak = Math.max(maxStreak, currentStreak);
-        currentStreak = 0; 
-        consecutiveFails++;
-        if (d.status === 'fail') criticalFails++;
-      }
+function num(value) {
+  const parsed = Number(String(value ?? '').replace(',', '.'));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
-      if (d.status === 'weakness' || d.status === 'fail') {
-        if (!d.nutrition) nutritionFails++;
-        if (!d.study) studyFails++;
-      }
-    });
-    
-    maxStreak = Math.max(maxStreak, currentStreak);
-    const winRate = passedDaysCount === 0 ? 0 : Math.round((successCount / passedDaysCount) * 100);
-    const survivalMode = consecutiveFails >= 3;
+function createDay(day, startDate) {
+  return {
+    day,
+    date: addDays(startDate, day - 1),
+    nsDone: false,
+    nsMinutes: '',
+    offerMinutes: '',
+    offerAction: '',
+    artifactType: '',
+    calories: '',
+    meals: '',
+    weight: '',
+    summary: '',
+    result: null,
+    xp: 0,
+    closedAt: null,
+  };
+}
 
+function createInitialState(startDate = todayKey()) {
+  return {
+    version: 1,
+    startDate,
+    createdAt: new Date().toISOString(),
+    days: Array.from({ length: TOTAL_DAYS }, (_, index) => createDay(index + 1, startDate)),
+  };
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.days?.length || !parsed.startDate) return null;
     return {
-      streak: currentStreak, maxStreak, percent: winRate, criticalFails,
-      nutritionFails, studyFails, passedDays: passedDaysCount, completed: successCount, 
-      currentWeight: lastWeight, consecutiveFails, survivalMode
+      ...parsed,
+      days: Array.from({ length: TOTAL_DAYS }, (_, index) => ({
+        ...createDay(index + 1, parsed.startDate),
+        ...parsed.days[index],
+        day: index + 1,
+        date: addDays(parsed.startDate, index),
+      })),
     };
-  },
-
-  checkCheckpointEligibility: (daysArray) => {
-    const historySlice = daysArray.slice(0, APP_CONFIG.CHECKPOINT_DAY - 1);
-    const historyStats = CoreEngine.calculateStats(historySlice);
-    return historyStats.percent >= 75 && historyStats.streak >= 5;
-  },
-
-  evaluateDayRules: (formData, isLate, isDebtUnpaid, survivalMode) => {
-    const currentPenalty = survivalMode ? 2 : formData.penaltyCount;
-    const minWinLength = currentPenalty > 0 ? 20 : 10;
-    const isRestDay = formData.day % 7 === 0;
-    
-    const hasCore = formData.nutrition && 
-                    formData.study && 
-                    Boolean(formData.weight) && 
-                    (formData.offerAction || "").length >= 10 && 
-                    (formData.winText || "").length >= minWinLength;
-                    
-    const clearedPenalties = currentPenalty === 0 || 
-                            (currentPenalty === 1 ? formData.extraTask1 : (formData.extraTask1 && formData.extraTask2));
-
-    let status = 'fail';
-    let quality = null;
-    let nextPenalty = currentPenalty;
-
-    if (hasCore && clearedPenalties && !isDebtUnpaid) {
-      status = 'success';
-      quality = (currentPenalty === 0 && formData.winText.length >= 50 && !isLate) ? 'perfect' : (isLate || currentPenalty > 0 ? 'barely' : 'ok');
-      nextPenalty = 0; 
-    } else if (formData.nutrition || formData.study || (hasCore && !clearedPenalties && !isDebtUnpaid)) {
-      status = 'weakness'; 
-      quality = 'barely';
-      nextPenalty = Math.min(2, currentPenalty + 1); 
-    } else {
-      status = 'fail';
-      nextPenalty = Math.min(2, currentPenalty + 1); 
-    }
-
-    const isValidForSuccess = status === 'success';
-    const isValidForFail = Boolean(formData.diagnosticCategory) && (formData.microFix || "").length >= 5;
-
-    return { status, quality, nextPenalty, isValidForSuccess, isValidForFail, isLate, isRestDay };
-  },
-
-  syncTimeState: (state, currentTimestamp) => {
-    const startObj = new Date(state.startDate).getTime();
-    const diffDays = Math.floor((currentTimestamp - startObj) / (1000 * 60 * 60 * 24));
-    const currentIdx = diffDays < 0 ? 0 : Math.max(0, Math.min(APP_CONFIG.TOTAL_DAYS - 1, diffDays));
-    
-    let newDays = [...state.days];
-    let isUpdated = false;
-
-    if (state.lastOpenTimestamp && currentTimestamp < state.lastOpenTimestamp) {
-      if (currentIdx >= 0 && newDays[currentIdx].status === null) {
-        newDays[currentIdx] = { 
-          ...newDays[currentIdx], status: 'fail', contractSigned: true, 
-          diagnosticCategory: "Плохое планирование / Хаос", microFix: "Сбой системного времени." 
-        };
-        if (currentIdx + 1 < APP_CONFIG.TOTAL_DAYS && newDays[currentIdx + 1].status === null) {
-          newDays[currentIdx + 1].penaltyCount = Math.min(2, (newDays[currentIdx + 1].penaltyCount || 0) + 1);
-        }
-        isUpdated = true;
-      }
-    }
-
-    for (let i = 0; i < diffDays && i < APP_CONFIG.TOTAL_DAYS; i++) {
-      if (newDays[i].status === null) {
-        newDays[i] = { 
-          ...newDays[i], isMissed: true, status: 'fail', contractSigned: true, quality: null, 
-          diagnosticCategory: "Сон / Нехватка энергии", microFix: "AUTO-FAIL: ПРОПУЩЕННЫЙ ДЕНЬ" 
-        };
-        if (i + 1 < APP_CONFIG.TOTAL_DAYS && newDays[i+1].status === null) {
-          newDays[i + 1].penaltyCount = Math.min(2, (newDays[i + 1].penaltyCount || 0) + 1);
-        }
-        if (i > 0 && newDays[i-1].isMissed) {
-          newDays[i].permanentFail = true;
-          if (i + 1 < APP_CONFIG.TOTAL_DAYS && newDays[i+1].status === null) newDays[i + 1].penaltyCount = 2; 
-        }
-        isUpdated = true;
-      }
-    }
-
-    return { 
-      syncedDays: newDays, 
-      isUpdated,
-      systemDestroyed: CoreEngine.calculateStats(newDays).criticalFails >= APP_CONFIG.MAX_CRITICAL_FAILS
-    };
-  },
-  
-  getEgoRank: (streak) => {
-    const level = Math.min(10, Math.floor(streak / 7) + 1);
-    return DOMAIN_DATA.RANKS[level - 1];
-  }
-};
-
-
-// ==========================================
-// [4. STATE MANAGEMENT] (Reducer)
-// ==========================================
-const initialState = {
-  isLoaded: false,
-  data: null, 
-};
-
-function appReducer(state, action) {
-  switch (action.type) {
-    case 'INIT_LOAD': {
-      const { savedData, currentTimestamp } = action.payload;
-      let initData = savedData || {
-        startDate: APP_CONFIG.START_DATE,
-        days: CoreEngine.generateInitialDays(),
-        lastOpenTimestamp: currentTimestamp,
-        achievements: [],
-        systemDestroyed: false,
-      };
-      
-      initData.days = initData.days.map(d => ({ ...d, diagnosticCategory: d.diagnosticCategory || "", microFix: d.microFix || d.failReason || "", identityFocus: d.identityFocus || "" }));
-      
-      const { syncedDays, systemDestroyed } = CoreEngine.syncTimeState(initData, currentTimestamp);
-      return { 
-        ...state, 
-        isLoaded: true, 
-        data: { ...initData, days: syncedDays, systemDestroyed, lastOpenTimestamp: currentTimestamp } 
-      };
-    }
-
-    case 'TICK_SYNC': {
-      if (!state.data || state.data.systemDestroyed) return state;
-      const { currentTimestamp } = action.payload;
-      const { syncedDays, isUpdated, systemDestroyed } = CoreEngine.syncTimeState(state.data, currentTimestamp);
-      if (!isUpdated) return state;
-      return { ...state, data: { ...state.data, days: syncedDays, systemDestroyed, lastOpenTimestamp: currentTimestamp } };
-    }
-
-    case 'SIGN_CONTRACT': {
-      const { dayIndex, identityFocus, status, microFix } = action.payload;
-      const newDays = [...state.data.days];
-      newDays[dayIndex] = { ...newDays[dayIndex], contractSigned: true, identityFocus };
-      
-      if (status === 'fail') {
-        newDays[dayIndex] = { 
-          ...newDays[dayIndex], status: 'fail', 
-          diagnosticCategory: "Стресс / Эмоциональный сбой", microFix, 
-          closedAt: new Date().toISOString() 
-        };
-        if (dayIndex + 1 < APP_CONFIG.TOTAL_DAYS && newDays[dayIndex+1].status === null) {
-          newDays[dayIndex+1].penaltyCount = Math.min(2, (newDays[dayIndex+1].penaltyCount || 0) + 1);
-        }
-      }
-      return { ...state, data: { ...state.data, days: newDays, lastOpenTimestamp: Date.now() } };
-    }
-
-    case 'CLOSE_DAY': {
-      const { formData, finalStatus, quality, isLate, nextPenalty, newAchievements, debtUpdate, closedAtISO } = action.payload;
-      const newDays = [...state.data.days];
-      const index = newDays.findIndex(d => d.day === formData.day);
-
-      newDays[index] = { ...formData, status: finalStatus, quality, late: isLate, closedAt: closedAtISO };
-      
-      if (debtUpdate && debtUpdate.index >= 0) {
-        newDays[debtUpdate.index] = { 
-          ...newDays[debtUpdate.index], 
-          diagnosticCategory: debtUpdate.category,
-          microFix: debtUpdate.microFix 
-        };
-      }
-      
-      if (finalStatus === 'fail' || finalStatus === 'weakness') {
-        const nextIdx = index + 1;
-        if (nextIdx < APP_CONFIG.TOTAL_DAYS && newDays[nextIdx].status === null) {
-          newDays[nextIdx] = { ...newDays[nextIdx], penaltyCount: nextPenalty };
-        }
-      }
-
-      const nextStats = CoreEngine.calculateStats(newDays);
-      return {
-        ...state,
-        data: {
-          ...state.data,
-          days: newDays,
-          achievements: [...(state.data.achievements||[]), ...newAchievements],
-          lastOpenTimestamp: Date.now(),
-          systemDestroyed: nextStats.criticalFails >= APP_CONFIG.MAX_CRITICAL_FAILS
-        }
-      };
-    }
-
-    case 'DEATH_RESET': {
-      return {
-        ...state,
-        data: {
-          startDate: new Date().toISOString(), 
-          days: CoreEngine.generateInitialDays(),
-          achievements: [], 
-          lastOpenTimestamp: Date.now(),
-          systemDestroyed: false,
-        }
-      };
-    }
-    default: return state;
+  } catch {
+    return null;
   }
 }
 
-// ==========================================
-// [5. PRESENTATION LAYER]
-// ==========================================
-export default function App() {
-  const [state, dispatch] = useReducer(appReducer, initialState);
-  
-  const [selectedDay, setSelectedDay] = useState(null);
-  const [modalForm, setModalForm] = useState(null);
-  const [modalDebtCategory, setModalDebtCategory] = useState(""); 
-  const [modalDebtFix, setModalDebtFix] = useState(""); 
-  const [contractIdentity, setContractIdentity] = useState("");
-  
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [checkpointAlert, setCheckpointAlert] = useState(null); 
-  const [streakBroken, setStreakBroken] = useState(false);
-  const [shake, setShake] = useState(false);
-  const [showConfetti, setShowConfetti] = useState(false);
-  const [unlockedAchievement, setUnlockedAchievement] = useState(null);
+function getCurrentDayIndex(startDate) {
+  const start = dateFromKey(startDate).getTime();
+  const today = dateFromKey(todayKey()).getTime();
+  return clamp(Math.floor((today - start) / 86400000), 0, TOTAL_DAYS - 1);
+}
 
-  const dispatchWithEffects = useCallback((action) => {
-    if (action.type === 'CLOSE_DAY' || action.type === 'SIGN_CONTRACT') {
-      const statusToCheck = action.payload.finalStatus || action.payload.status;
-      const q = action.payload.quality;
-      
-      if (statusToCheck === 'success' && q === 'perfect') {
-        setShowConfetti(true); setTimeout(() => setShowConfetti(false), 3000); DeviceService.playSound('success');
-      } else if (statusToCheck === 'fail' || statusToCheck === 'weakness') {
-        setShake(true); DeviceService.vibrate([200, 100, 200]); setTimeout(() => setShake(false), 500); DeviceService.playSound('glass');
-      }
+function evaluateDay(day) {
+  const nsMinutes = num(day.nsMinutes);
+  const offerMinutes = num(day.offerMinutes);
+  const calories = num(day.calories);
+  const meals = num(day.meals);
+  const weight = num(day.weight);
+  const hasNs = day.nsDone && nsMinutes >= 10;
+  const hasOffer = offerMinutes >= 25 && day.offerAction.trim().length >= 5;
+  const hasNutrition = calories > 0 && calories <= CALORIE_LIMIT && meals >= 1 && meals <= 3;
+  const hasWeight = weight > 0;
+  const hasSummary = day.summary.trim().length >= 5;
+  const hasArtifact = Boolean(day.artifactType);
 
-      if (action.payload.newAchievements && action.payload.newAchievements.length > 0) {
-         const aObj = ACHIEVEMENTS_LIST.find(a => a.id === action.payload.newAchievements[0]);
-         if (aObj) setUnlockedAchievement(aObj);
-      }
-    }
-    dispatch(action);
-  }, []);
+  const score = [
+    hasNs ? 22 : nsMinutes > 0 ? 12 : 0,
+    hasOffer ? 24 : offerMinutes > 0 || day.offerAction.trim() ? 12 : 0,
+    hasNutrition ? 20 : calories > 0 || meals > 0 ? 8 : 0,
+    hasWeight ? 12 : 0,
+    hasArtifact ? 12 : 0,
+    hasSummary ? 10 : 0,
+  ].reduce((sum, value) => sum + value, 0);
+
+  const blockers = [];
+  if (!hasNs) blockers.push('НС: отметь выполнение и минимум 10 минут');
+  if (!hasOffer) blockers.push('Offer+: минимум 25 минут и конкретное действие');
+  if (!hasNutrition) blockers.push('Питание: до 2300 ккал и 1-3 приёма пищи');
+  if (!hasWeight) blockers.push('Вес: внеси текущий вес');
+
+  if (!(hasNs && hasOffer && hasNutrition && hasWeight)) {
+    return {
+      id: 'draft',
+      title: 'Черновик',
+      short: 'Черновик',
+      xp: 0,
+      color: '#94a3b8',
+      bg: '#f1f5f9',
+      border: '#dbe3eb',
+      text: '#475569',
+      score,
+      blockers,
+      description: 'День ещё не даёт чистого результата.',
+    };
+  }
+
+  let tier = TIERS.base;
+  if (offerMinutes >= 60 && hasSummary && (hasArtifact || day.offerAction.trim().length >= 24)) {
+    tier = TIERS.growth;
+  }
+  if (offerMinutes >= 120 && calories <= CALORIE_TOP && nsMinutes >= 20 && hasArtifact && hasSummary) {
+    tier = TIERS.breakthrough;
+  }
+
+  return { ...tier, score, blockers: [], description: tier.description };
+}
+
+function calculateStats(days, currentDayIndex) {
+  const elapsedDays = days.slice(0, currentDayIndex + 1);
+  const closedDays = elapsedDays.filter((day) => day.result);
+  const xp = days.reduce((sum, day) => sum + (day.xp || 0), 0);
+  const level = Math.max(1, Math.floor(xp / LEVEL_STEP) + 1);
+  const levelProgress = Math.round(((xp % LEVEL_STEP) / LEVEL_STEP) * 100);
+  const tierCounts = closedDays.reduce((acc, day) => {
+    acc[day.result] = (acc[day.result] || 0) + 1;
+    return acc;
+  }, {});
+
+  const calories = closedDays.map((day) => num(day.calories)).filter(Boolean);
+  const avgCalories = calories.length
+    ? Math.round(calories.reduce((sum, value) => sum + value, 0) / calories.length)
+    : 0;
+
+  const weights = closedDays.map((day) => ({ day: day.day, value: num(day.weight) })).filter((item) => item.value);
+  const firstWeight = weights[0]?.value || 0;
+  const lastWeight = weights.at(-1)?.value || 0;
+  const weightDelta = firstWeight && lastWeight ? Number((lastWeight - firstWeight).toFixed(1)) : 0;
+
+  const offerMinutes = closedDays.reduce((sum, day) => sum + num(day.offerMinutes), 0);
+  const nsMinutes = closedDays.reduce((sum, day) => sum + num(day.nsMinutes), 0);
+  const focusMinutes = offerMinutes + nsMinutes;
+  const artifacts = closedDays.filter((day) => day.artifactType).length;
+  const foodOverLimit = closedDays.filter((day) => num(day.calories) > CALORIE_LIMIT).length;
+  const emptyDays = elapsedDays.filter((day) => !day.result).length;
+  const completionRate = elapsedDays.length ? Math.round((closedDays.length / elapsedDays.length) * 100) : 0;
+
+  const streak = [...elapsedDays].reverse().reduce((acc, day) => {
+    if (acc.done) return acc;
+    if (day.result) return { count: acc.count + 1, done: false };
+    return { count: acc.count, done: true };
+  }, { count: 0, done: false }).count;
+
+  const breakthroughStreak = [...elapsedDays].reverse().reduce((acc, day) => {
+    if (acc.done) return acc;
+    if (day.result === 'breakthrough') return { count: acc.count + 1, done: false };
+    return { count: acc.count, done: true };
+  }, { count: 0, done: false }).count;
+
+  return {
+    elapsedDays,
+    closedDays,
+    xp,
+    level,
+    levelProgress,
+    tierCounts,
+    avgCalories,
+    firstWeight,
+    lastWeight,
+    weightDelta,
+    offerMinutes,
+    nsMinutes,
+    focusMinutes,
+    artifacts,
+    foodOverLimit,
+    emptyDays,
+    completionRate,
+    streak,
+    breakthroughStreak,
+  };
+}
+
+function getWeeks(days) {
+  return Array.from({ length: Math.ceil(TOTAL_DAYS / 7) }, (_, index) => {
+    const weekDays = days.slice(index * 7, index * 7 + 7);
+    const closed = weekDays.filter((day) => day.result);
+    const xp = closed.reduce((sum, day) => sum + (day.xp || 0), 0);
+    const offer = closed.reduce((sum, day) => sum + num(day.offerMinutes), 0);
+    const ns = closed.reduce((sum, day) => sum + num(day.nsMinutes), 0);
+    const avgCalories = closed.length
+      ? Math.round(closed.reduce((sum, day) => sum + num(day.calories), 0) / closed.length)
+      : 0;
+    const weights = closed.map((day) => num(day.weight)).filter(Boolean);
+    const weightDelta = weights.length > 1 ? Number((weights.at(-1) - weights[0]).toFixed(1)) : 0;
+    return {
+      number: index + 1,
+      from: weekDays[0]?.day,
+      to: weekDays.at(-1)?.day,
+      closed,
+      xp,
+      offer,
+      ns,
+      avgCalories,
+      weightDelta,
+      breakthrough: closed.filter((day) => day.result === 'breakthrough').length,
+      growth: closed.filter((day) => day.result === 'growth').length,
+      base: closed.filter((day) => day.result === 'base').length,
+    };
+  });
+}
+
+function getTrendLabel(weightDelta) {
+  if (!weightDelta) return { label: 'данных мало', tone: 'text-slate-500', icon: Activity };
+  if (weightDelta < -0.4) return { label: 'вес уходит вниз', tone: 'text-emerald-700', icon: TrendingDownIcon };
+  if (weightDelta > 0.4) return { label: 'вес растёт', tone: 'text-rose-700', icon: TrendingUpIcon };
+  return { label: 'вес держится', tone: 'text-sky-700', icon: Activity };
+}
+
+function buildExport(state, stats, weeks) {
+  const closed = state.days.filter((day) => day.result);
+  const checkpoints = CHECKPOINT_DAYS.map((dayNumber) => checkpointSummary(state.days, dayNumber));
+  const markdown = [
+    '# 120 дней роста: экспорт для анализа',
+    '',
+    `Старт: ${state.startDate}`,
+    `Дней прошло: ${stats.elapsedDays.length}/${TOTAL_DAYS}`,
+    `Закрыто дней: ${stats.closedDays.length}`,
+    `XP: ${stats.xp}, уровень: ${stats.level}`,
+    `Offer+ часы: ${(stats.offerMinutes / 60).toFixed(1)}`,
+    `НС часы: ${(stats.nsMinutes / 60).toFixed(1)}`,
+    `Средние калории: ${stats.avgCalories || 'нет данных'}`,
+    `Вес: ${stats.firstWeight || 'нет'} -> ${stats.lastWeight || 'нет'} кг, дельта ${stats.weightDelta} кг`,
+    '',
+    '## Вопрос к нейросети',
+    'Проанализируй мой 120-дневный путь. Найди паттерны роста, причины просадок, связь Offer+ действий с результатом, связь питания/веса с энергией. Объясни, почему я приближаюсь к офферу или почему не добираю. Дай 3 главных рычага на следующую неделю.',
+    '',
+    '## Недельные итоги',
+    ...weeks.filter((week) => week.closed.length).map((week) => (
+      `- Неделя ${week.number}: закрыто ${week.closed.length}/7, XP ${week.xp}, Offer+ ${(week.offer / 60).toFixed(1)} ч, НС ${(week.ns / 60).toFixed(1)} ч, средние ккал ${week.avgCalories || '-'}, вес ${week.weightDelta > 0 ? '+' : ''}${week.weightDelta} кг, топ-дней ${week.breakthrough}.`
+    )),
+    '',
+    '## Чекпоинты',
+    ...checkpoints.map((item) => (
+      `- День ${item.day}: закрыто ${item.closed}/${item.elapsed}, XP ${item.xp}, Offer+ ${(item.offerMinutes / 60).toFixed(1)} ч, средние ккал ${item.avgCalories || '-'}, вес ${item.weightDelta > 0 ? '+' : ''}${item.weightDelta} кг.`
+    )),
+    '',
+    '## Дни',
+    ...closed.map((day) => (
+      `- День ${day.day} (${day.date}): ${TIERS[day.result]?.title || day.result}, XP ${day.xp}, НС ${day.nsMinutes} мин, Offer+ ${day.offerMinutes} мин, ккал ${day.calories}, приёмов ${day.meals}, вес ${day.weight} кг, артефакт: ${day.artifactType || '-'}, действие: ${day.offerAction}, итог: ${day.summary || '-'}`
+    )),
+  ].join('\n');
+
+  const json = JSON.stringify({
+    meta: {
+      startDate: state.startDate,
+      totalDays: TOTAL_DAYS,
+      exportedAt: new Date().toISOString(),
+    },
+    stats,
+    weeks,
+    checkpoints,
+    days: state.days,
+  }, null, 2);
+
+  return { markdown, json };
+}
+
+function checkpointSummary(days, dayNumber) {
+  const slice = days.slice(0, dayNumber);
+  const closed = slice.filter((day) => day.result);
+  const calories = closed.map((day) => num(day.calories)).filter(Boolean);
+  const weights = closed.map((day) => num(day.weight)).filter(Boolean);
+  return {
+    day: dayNumber,
+    elapsed: slice.length,
+    closed: closed.length,
+    xp: closed.reduce((sum, day) => sum + (day.xp || 0), 0),
+    offerMinutes: closed.reduce((sum, day) => sum + num(day.offerMinutes), 0),
+    avgCalories: calories.length ? Math.round(calories.reduce((sum, value) => sum + value, 0) / calories.length) : 0,
+    weightDelta: weights.length > 1 ? Number((weights.at(-1) - weights[0]).toFixed(1)) : 0,
+    topDays: closed.filter((day) => day.result === 'breakthrough').length,
+  };
+}
+
+function App() {
+  const [state, setState] = useState(() => loadState());
+  const currentDayIndex = useMemo(
+    () => state ? getCurrentDayIndex(state.startDate) : 0,
+    [state],
+  );
+  const [activeDayIndex, setActiveDayIndex] = useState(currentDayIndex);
+  const [showExport, setShowExport] = useState(false);
+  const [exportMode, setExportMode] = useState('markdown');
+  const [copied, setCopied] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
 
   useEffect(() => {
-    const saved = StorageService.load();
-    dispatch({ type: 'INIT_LOAD', payload: { savedData: saved, currentTimestamp: Date.now() } });
-    const interval = setInterval(() => dispatch({ type: 'TICK_SYNC', payload: { currentTimestamp: Date.now() } }), 60000);
-    return () => clearInterval(interval);
-  }, []);
+    if (!state) return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }, [state]);
 
-  useEffect(() => {
-    if (state.isLoaded && state.data) StorageService.save(state.data);
-  }, [state.data, state.isLoaded]);
+  const stats = useMemo(
+    () => state ? calculateStats(state.days, currentDayIndex) : null,
+    [state, currentDayIndex],
+  );
+  const weeks = useMemo(() => state ? getWeeks(state.days) : [], [state]);
+  const safeActiveDayIndex = state ? clamp(activeDayIndex, 0, currentDayIndex) : 0;
+  const activeDay = state?.days?.[safeActiveDayIndex] || null;
+  const activeEvaluation = useMemo(() => activeDay ? evaluateDay(activeDay) : null, [activeDay]);
+  const currentWeek = weeks[Math.floor(currentDayIndex / 7)] || weeks[0];
+  const exportData = useMemo(
+    () => state && stats ? buildExport(state, stats, weeks) : { markdown: '', json: '' },
+    [state, stats, weeks],
+  );
 
-  const data = state.data;
-  const stats = useMemo(() => data ? CoreEngine.calculateStats(data.days) : CoreEngine.calculateStats([]), [data]);
-  const currentDayIndex = useMemo(() => data ? CoreEngine.calculateCurrentDayIndex(data.startDate, Date.now()) : 0, [data]);
-  const egoRank = useMemo(() => CoreEngine.getEgoRank(stats.streak), [stats.streak]);
-  const isSurvivalMode = stats.survivalMode;
+  const latestSignal = useMemo(() => {
+    if (!stats) return null;
+    return [...SIGNALS].reverse().find((signal) => stats.xp >= signal.minXp);
+  }, [stats]);
 
-  const last7Days = useMemo(() => {
-    if (!data) return [];
-    const start = Math.max(0, currentDayIndex - 6);
-    return data.days.slice(start, Math.max(1, currentDayIndex + 1)).reverse();
-  }, [data, currentDayIndex]);
+  if (!state || !stats) {
+    return <StartScreen onStart={() => setState(createInitialState())} />;
+  }
 
-  const isPreStart = new Date() < new Date(APP_CONFIG.START_DATE);
-
-  // Deterministic random triggers
-  const randomPainTrigger = useMemo(() => {
-    const triggers = DOMAIN_DATA.PAIN_TRIGGERS;
-    return triggers[Math.floor(Math.random() * triggers.length)];
-  }, [selectedDay]);
-
-  // --- Handlers ---
-  const handleDayClick = (dayObj) => {
-    if (dayObj.day - 1 > currentDayIndex) return; 
-    setSelectedDay(dayObj);
-    setModalForm({ ...dayObj });
-    setModalDebtCategory("");
-    setModalDebtFix("");
+  const updateActiveDay = (nextDay) => {
+    setState((prev) => ({
+      ...prev,
+      days: prev.days.map((day, index) => (
+        index === safeActiveDayIndex
+          ? { ...nextDay, result: null, xp: 0, closedAt: null }
+          : day
+      )),
+    }));
   };
 
-  const handleContractSign = (decision) => {
-    if (decision === 'accept') {
-      if (contractIdentity.length < 5) {
-        alert("Заполни идентичность (минимум 5 символов)");
-        return;
-      }
-      dispatchWithEffects({ type: 'SIGN_CONTRACT', payload: { dayIndex: currentDayIndex, identityFocus: contractIdentity } });
-    } else {
-      dispatchWithEffects({ 
-        type: 'SIGN_CONTRACT', 
-        payload: { dayIndex: currentDayIndex, status: 'fail', microFix: "Сдался до старта." } 
-      });
-    }
-  };
-
-  const executeDayClosure = (intent) => {
-    if (!modalForm) return;
-
-    const currentHour = new Date().getHours();
-    const prevDayIdx = modalForm.day - 2;
-    const prevDayObj = prevDayIdx >= 0 ? data.days[prevDayIdx] : null;
-    const isDebtUnpaid = prevDayObj ? (prevDayObj.isMissed && (!prevDayObj.diagnosticCategory || !prevDayObj.microFix) && (modalDebtFix.length < 5 || !modalDebtCategory)) : false;
-
-    const rules = CoreEngine.evaluateDayRules(modalForm, currentHour >= 23, isDebtUnpaid, isSurvivalMode);
-    const isEligibleForCP66 = CoreEngine.checkCheckpointEligibility(data.days);
-    const isCP66Blocked = modalForm.day === APP_CONFIG.CHECKPOINT_DAY && !isEligibleForCP66;
-
-    let finalStatus = rules.status;
-
-    if (intent === 'success') {
-      if (!rules.isValidForSuccess || isCP66Blocked || isDebtUnpaid) return; 
-    } else {
-      if (!rules.isValidForFail) return; 
-      finalStatus = rules.status === 'success' ? 'weakness' : rules.status; 
-    }
-
-    if (modalForm.day === APP_CONFIG.CHECKPOINT_DAY && isCP66Blocked) finalStatus = 'fail';
-
-    let newUnlocked = [];
-    const currAch = data.achievements || [];
-    const nextTempStreak = finalStatus === 'success' ? stats.streak + 1 : 0;
-
-    if (finalStatus === 'success' && rules.quality === 'perfect' && !currAch.includes('first_blood')) newUnlocked.push('first_blood');
-    if (nextTempStreak >= 7 && !currAch.includes('streak_7')) newUnlocked.push('streak_7');
-    if (nextTempStreak >= 30 && !currAch.includes('streak_30')) newUnlocked.push('streak_30');
-    if (modalForm.weight && APP_CONFIG.WEIGHT_START - parseFloat(modalForm.weight) >= 5 && !currAch.includes('weight_5')) newUnlocked.push('weight_5');
-    
-    if (modalForm.day === APP_CONFIG.CHECKPOINT_DAY) {
-      if (isCP66Blocked || finalStatus === 'fail') setCheckpointAlert('guilty');
-      else if (finalStatus === 'success') {
-        if (!currAch.includes('checkpoint_66')) newUnlocked.push('checkpoint_66');
-        setCheckpointAlert('success');
-      }
-    }
-
-    if (modalForm.day === APP_CONFIG.TOTAL_DAYS) {
-      const finalPassed = stats.passedDays + 1; 
-      const finalCompleted = finalStatus === 'success' ? stats.completed + 1 : stats.completed;
-      const finalPercent = Math.round((finalCompleted / finalPassed) * 100);
-      const finalWeight = parseFloat(modalForm.weight || stats.currentWeight);
-      
-      if (finalPercent < APP_CONFIG.SUCCESS_THRESHOLD || finalWeight > APP_CONFIG.WEIGHT_TARGET) setCheckpointAlert('failFinal');
-      else {
-        if (!currAch.includes('divine_120')) newUnlocked.push('divine_120');
-        setCheckpointAlert('successFinal');
-      }
-    }
-
-    if (finalStatus !== 'success' && stats.streak > 0) {
-      setStreakBroken(true);
-      DeviceService.vibrate([400]);
-      setTimeout(() => setStreakBroken(false), 3000);
-    }
-
-    dispatchWithEffects({
-      type: 'CLOSE_DAY',
-      payload: {
-        formData: modalForm, finalStatus, quality: rules.quality, isLate: rules.isLate,
-        nextPenalty: rules.nextPenalty, newAchievements: newUnlocked,
-        debtUpdate: prevDayObj?.isMissed && (!prevDayObj.diagnosticCategory || !prevDayObj.microFix) ? { index: prevDayIdx, category: modalDebtCategory, microFix: modalDebtFix } : null,
-        closedAtISO: new Date().toISOString()
-      }
+  const saveDay = () => {
+    const evaluation = evaluateDay(activeDay);
+    const nextDays = state.days.map((day, index) => {
+      if (index !== safeActiveDayIndex) return day;
+      const result = evaluation.id === 'draft' ? null : evaluation.id;
+      return {
+        ...activeDay,
+        result,
+        xp: result ? evaluation.xp : 0,
+        closedAt: result ? new Date().toISOString() : null,
+      };
     });
-
-    setSelectedDay(null);
+    setState({ ...state, days: nextDays });
   };
 
-  // --- Render Guards ---
-  if (!state.isLoaded || !data) return <div className="min-h-screen bg-black flex items-center justify-center text-red-600 font-mono italic tracking-widest animate-pulse">РАЗВЕРТЫВАНИЕ ПРОТОКОЛА V13...</div>;
+  const resetJourney = () => {
+    localStorage.removeItem(STORAGE_KEY);
+    setConfirmReset(false);
+    setState(null);
+  };
 
-  // The Daily Contract UI
-  const todayObj = data.days[currentDayIndex];
-  if (!isPreStart && todayObj && !todayObj.contractSigned && todayObj.status === null) {
-    return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-8 text-center bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImEiIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTTAgNDBoNDBWMEgweiIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIuMDUiLz48cGF0aCBkPSJNMCAwdjQwaDQwVjBIMHptMjAgMjB2MjBoMjBWMEgyMHYyMHoiIGZpbGw9IiMwMDAiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjYSkiLz48L3N2Zz4=')]">
-        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="max-w-2xl w-full bg-zinc-950 border-2 border-emerald-900/50 p-10 md:p-12 rounded-[3rem] shadow-[0_0_50px_rgba(16,185,129,0.1)] relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-2 bg-emerald-600 animate-pulse" />
-          <BrainCircuit size={60} className="text-emerald-500 mx-auto mb-6" />
-          <h1 className="text-4xl md:text-5xl font-black text-white uppercase italic mb-2 tracking-tighter">ДЕНЬ {currentDayIndex + 1} НАЧАЛСЯ</h1>
-          <p className="text-zinc-500 font-mono text-sm uppercase tracking-[0.3em] mb-8">ИДЕНТИФИКАЦИЯ ЛИЧНОСТИ</p>
-          
-          <div className="text-left mb-8">
-            <label className="block text-[10px] font-black uppercase text-emerald-500 mb-3 tracking-widest">Кем ты становишься сегодня? (Например: "Я - Senior AQA, решающий проблемы бизнеса")</label>
-            <textarea
-              value={contractIdentity}
-              onChange={e => setContractIdentity(e.target.value)}
-              className="w-full bg-[#05100a] border border-emerald-900/50 rounded-2xl p-4 text-emerald-400 focus:border-emerald-500 outline-none transition-all resize-none shadow-inner h-24 text-sm"
-              placeholder="Сформируй намерение..."
-            />
-          </div>
+  const copyExport = async () => {
+    const text = exportMode === 'markdown' ? exportData.markdown : exportData.json;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  };
 
-          <div className="space-y-4">
-            <button onClick={() => handleContractSign('accept')} className="w-full py-5 bg-emerald-900/20 border-2 border-emerald-600/50 hover:bg-emerald-800 text-emerald-400 hover:text-white rounded-2xl font-black uppercase text-lg tracking-widest transition-all group relative overflow-hidden">
-              <span className="relative z-10">ПРИНЯТЬ КОНТРАКТ</span>
-              <div className="absolute inset-0 bg-emerald-500/20 w-0 group-hover:w-full transition-all duration-500" />
-            </button>
-            <button onClick={() => handleContractSign('reject')} className="w-full py-3 bg-zinc-900 border border-red-900/30 hover:bg-red-950 text-red-500 rounded-xl font-bold uppercase tracking-widest transition-all text-xs">
-              Остаться слабым (Сдаться)
-            </button>
-          </div>
-        </motion.div>
-      </div>
-    );
-  }
-
-  if (isPreStart) {
-    const daysLeft = Math.ceil((new Date(APP_CONFIG.START_DATE) - new Date()) / (1000 * 60 * 60 * 24));
-    return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-8 text-center">
-        <Play size={80} className="text-emerald-600 mb-8 animate-pulse" />
-        <h1 className="text-5xl md:text-7xl font-black text-white uppercase italic mb-4">THE DIVINE SHOW</h1>
-        <p className="text-zinc-500 font-mono text-xl md:text-2xl uppercase tracking-[0.3em] mb-12">ПРОТОКОЛ АКТИВИРУЕТСЯ 4 МАЯ 2026</p>
-        <div className="text-8xl font-black text-emerald-600 drop-shadow-[0_0_30px_emerald]">-{daysLeft}</div>
-        <p className="mt-8 text-zinc-400 font-bold uppercase tracking-widest text-sm max-w-md">
-          Готовься. Силы восстанавливаются. Ты сможешь протестировать День 1, закрыв это окно.
-        </p>
-        <button onClick={() => APP_CONFIG.START_DATE = new Date(Date.now() - 10000).toISOString()} className="mt-8 px-6 py-2 border border-zinc-800 text-zinc-600 text-xs rounded hover:bg-zinc-900">Force Start (Test)</button>
-      </div>
-    );
-  }
-
-  if (data.systemDestroyed) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center p-8 text-center">
-        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
-          <Bomb size={100} className="text-red-600 mx-auto mb-8 animate-bounce" />
-          <h1 className="text-6xl font-black text-white uppercase italic mb-4">СИСТЕМА РАЗРУШЕНА</h1>
-          <p className="text-red-500 font-mono text-xl max-w-lg mx-auto uppercase tracking-tighter mb-12">
-            Твоя личность стерта. {APP_CONFIG.MAX_CRITICAL_FAILS} критических провалов.
-          </p>
-          <button onClick={() => setShowResetConfirm(true)} className="px-12 py-4 bg-red-600 text-white font-black uppercase rounded-full hover:bg-red-700 transition-all shadow-[0_0_30px_rgba(220,38,38,0.4)]">
-            УМЕРЕТЬ И НАЧАТЬ ЗАНОВО
-          </button>
-        </motion.div>
-        
-        {showResetConfirm && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/95">
-            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-[#050505] border-2 border-red-600 p-10 rounded-[3rem] max-w-sm text-center">
-              <h3 className="text-3xl font-black text-white mb-6 italic uppercase tracking-tighter text-center">ПОСЛЕДНИЙ ШАГ</h3>
-              <p className="text-red-400 mb-10 uppercase text-[10px] leading-relaxed tracking-[0.3em] font-bold">
-                ВЕСЬ ПРОГРЕСС И АЧИВКИ БУДУТ УНИЧТОЖЕНЫ НАВСЕГДА. ТЫ СТАНЕШЬ НИКЕМ.
-              </p>
-              <div className="flex gap-4">
-                <button onClick={() => setShowResetConfirm(false)} className="flex-1 py-4 bg-zinc-900 rounded-2xl font-bold uppercase text-[10px]">ОТМЕНА</button>
-                <button onClick={() => { dispatchWithEffects({type:'DEATH_RESET'}); setShowResetConfirm(false); }} className="flex-1 py-4 bg-red-700 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg shadow-red-900/20">Я СОГЛАСЕН НА СМЕРТЬ</button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  const isEligibleForCP66 = CoreEngine.checkCheckpointEligibility(data.days);
-  const isCP66Blocked = selectedDay?.day === APP_CONFIG.CHECKPOINT_DAY && !isEligibleForCP66;
-  const prevDayIdx = selectedDay ? selectedDay.day - 2 : -1;
-  const prevDayObj = prevDayIdx >= 0 ? data.days[prevDayIdx] : null;
-  const isDebtUnpaid = prevDayObj ? (prevDayObj.isMissed && (!prevDayObj.diagnosticCategory || !prevDayObj.microFix) && (modalDebtFix.length < 5 || !modalDebtCategory)) : false;
-  
-  const evalLive = modalForm ? CoreEngine.evaluateDayRules(modalForm, new Date().getHours() >= 23, isDebtUnpaid, isSurvivalMode) : null;
-  const isRestDay = selectedDay?.day % 7 === 0;
-
-  const painText = isSurvivalMode 
-    ? `РЕЖИМ ВЫЖИВАНИЯ. Откат оффера: ${stats.consecutiveFails * 3} дн. Возврат жира: +${stats.consecutiveFails * 200}г.`
-    : `Слабость отдаляет оффер на 3 дня и возвращает жир.`;
+  const downloadExport = () => {
+    const isMarkdown = exportMode === 'markdown';
+    const blob = new Blob([isMarkdown ? exportData.markdown : exportData.json], {
+      type: isMarkdown ? 'text/markdown;charset=utf-8' : 'application/json;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = isMarkdown ? 'offer-growth-120-export.md' : 'offer-growth-120-export.json';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
-    <div className={`min-h-screen text-gray-200 font-sans p-4 md:p-8 transition-colors duration-1000 ${egoRank.glow}`} style={{ backgroundColor: egoRank.bg }}>
-      
-      {showConfetti && <ConfettiOverlay />}
-      {isSurvivalMode && <div className="fixed inset-0 pointer-events-none border-[10px] border-red-900/30 z-[900] animate-pulse" />}
+    <div className="min-h-screen overflow-x-hidden bg-[#fbf7ef] text-slate-900">
+      <div className="pointer-events-none fixed inset-0 bg-[linear-gradient(90deg,rgba(59,130,246,0.06)_1px,transparent_1px),linear-gradient(rgba(20,83,45,0.05)_1px,transparent_1px)] bg-[size:44px_44px]" />
+      <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
+        <Header
+          stats={stats}
+          currentDayIndex={currentDayIndex}
+          onExport={() => setShowExport(true)}
+          onReset={() => setConfirmReset(true)}
+        />
 
-      <header className="max-w-6xl mx-auto mb-8 relative z-10">
-        {stats.streak > 14 && (
-          <div className="w-full bg-violet-900/30 border border-violet-500/50 text-violet-300 text-[10px] uppercase font-black tracking-[0.3em] py-2 px-4 rounded-xl text-center mb-6 flex items-center justify-center gap-2">
-            <BrainCircuit size={14} /> АУДИТ СИСТЕМЫ: АВТОПИЛОТ ОБНАРУЖЕН. ПОВЫСЬ ОСОЗНАННОСТЬ.
-          </div>
-        )}
+        <section className="grid gap-4 lg:grid-cols-[1.05fr_1.35fr]">
+          <TodayPanel
+            day={activeDay}
+            evaluation={activeEvaluation}
+            onChange={updateActiveDay}
+            onSave={saveDay}
+            activeDayIndex={safeActiveDayIndex}
+            currentDayIndex={currentDayIndex}
+          />
 
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-white/5 pb-6">
-          <div>
-            <h1 className="text-4xl font-black tracking-tighter text-white uppercase italic leading-none">
-              120 Дней: <span className="text-emerald-500">The Divine Show</span>
-            </h1>
-            <div className="flex items-center gap-4 mt-3">
-              <div className="flex items-center gap-2">
-                <span className="text-zinc-500 font-mono text-xs uppercase tracking-widest">РАНГ ЭГО:</span>
-                <span className={`font-black uppercase italic text-sm ${egoRank.color}`}>
-                  {egoRank.title} (Ур.{egoRank.level})
-                </span>
-              </div>
-              {isSurvivalMode && (
-                <span className="bg-red-900 text-red-200 text-[10px] px-2 py-0.5 rounded uppercase font-black tracking-widest animate-pulse">
-                  SURVIVAL MODE
-                </span>
-              )}
-              {streakBroken && (
-                <motion.span initial={{ x: -10, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="text-red-600 text-xs font-black uppercase animate-pulse">
-                  СЛАБОСТЬ ЗАФИКСИРОВАНА
-                </motion.span>
-              )}
-            </div>
-          </div>
+          <PathPanel
+            days={state.days}
+            activeDayIndex={safeActiveDayIndex}
+            currentDayIndex={currentDayIndex}
+            onSelect={(index) => {
+              setActiveDayIndex(index);
+            }}
+            stats={stats}
+            signal={latestSignal}
+          />
+        </section>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 w-full md:w-auto">
-            <StatBox icon={<Flame size={16} className="text-emerald-500" />} label="СЕРИЯ УСПЕХОВ" value={stats.streak} />
-            <StatBox icon={<Activity size={16} className="text-cyan-500" />} label="WIN RATE" value={`${stats.percent}%`} />
-            <StatBox icon={<Ghost size={16} className="text-red-600" />} label="КРИТ. СБОИ" value={`${stats.criticalFails}/${APP_CONFIG.MAX_CRITICAL_FAILS}`} />
-            <StatBox icon={<Scale size={16} className="text-orange-400" />} label="ТЕКУЩИЙ ВЕС" value={`${stats.currentWeight || '--'} кг`} />
-          </div>
-        </div>
-
-        <div className="text-xs uppercase tracking-widest text-zinc-500 font-bold mb-6 italic border-l-2 border-emerald-900/50 pl-4">
-          {DOMAIN_DATA.STATUS_TIPS[stats.streak < 3 ? "ХАОС" : stats.streak < 7 ? "БОРЬБА" : stats.streak < 20 ? "КОНТРОЛЬ" : "ДОМИНИРОВАНИЕ"]}
-        </div>
-
-        <div className="mt-6">
-          <div className="flex flex-wrap gap-[2px] justify-between">
-            {data.days.map((d, i) => {
-              let bg = "bg-zinc-900";
-              if (d.status === 'success') bg = d.quality === 'perfect' ? "bg-emerald-500" : d.quality === 'barely' ? "bg-emerald-800" : "bg-emerald-600";
-              else if (d.status === 'weakness') bg = "bg-orange-600 shadow-[0_0_8px_rgba(234,88,12,0.4)]";
-              else if (d.permanentFail) bg = "bg-red-950 border-2 border-red-600 shadow-[0_0_10px_red]";
-              else if (d.status === 'fail') bg = "bg-zinc-950 border border-red-900/60";
-              else if (i === currentDayIndex) bg = "bg-cyan-500 animate-pulse";
-              
-              return <div key={i} className={`h-2 flex-1 min-w-[4px] rounded-[1px] transition-all ${bg}`} title={`Day ${d.day} | ${d.status||'Empty'}`} />;
-            })}
-          </div>
-        </div>
-      </header>
-
-      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-8 relative z-10">
-        <aside className="lg:col-span-1 space-y-6">
-          <div className="bg-zinc-950 border border-white/5 rounded-2xl p-5">
-            <h3 className="flex items-center gap-2 text-xs font-black uppercase text-zinc-500 mb-2 tracking-widest">
-              <TrendingDown size={14} /> ТРЕНД ВЕСА (7 ДН)
-            </h3>
-            <WeightChart days={data.days} />
-          </div>
-
-          <div className="bg-zinc-950 border border-white/5 rounded-2xl p-5">
-            <h3 className="flex items-center gap-2 text-xs font-black uppercase text-zinc-500 mb-4 tracking-widest">
-              <History size={14} /> История (7 дн)
-            </h3>
-            <div className="space-y-3 text-xs">
-              {last7Days.map(d => (
-                <div key={d.day} className="flex items-center justify-between border-b border-white/5 pb-2">
-                  <div className="flex flex-col">
-                    <span className="text-zinc-500 font-mono italic text-[10px]">ДЕНЬ {d.day}</span>
-                    <span className="text-[8px] text-zinc-700 font-mono uppercase">{getDayDateString(d.day, data.startDate)}</span>
-                  </div>
-                  <div className="flex items-center gap-2 uppercase font-black">
-                    <span className={
-                      d.status === 'success' ? 'text-emerald-400' : 
-                      d.status === 'weakness' ? 'text-orange-500' : 'text-red-900'
-                    }>
-                      {d.status === 'success' ? 'УСПЕХ' : d.status === 'weakness' ? 'СЛАБОСТЬ' : 'ПРОВАЛ'}
-                    </span>
-                  </div>
-                </div>
-              ))}
-              {last7Days.length === 0 && <div className="text-zinc-600 text-[10px] uppercase">Пусто. Ожидание старта.</div>}
-            </div>
-          </div>
-
-          <div className="bg-zinc-950 border border-white/5 rounded-2xl p-5">
-            <h3 className="text-xs font-black uppercase text-zinc-500 mb-4 tracking-widest">Анализ Ошибок Поведения</h3>
-            <div className="space-y-4">
-              <ErrorTrack label="Срывы Питания" count={stats.nutritionFails} color="bg-red-600" />
-              <ErrorTrack label="Срывы Обучения" count={stats.studyFails} color="bg-orange-600" />
-            </div>
-          </div>
-        </aside>
-
-        <main className="lg:col-span-3">
-          <div className="grid grid-cols-5 md:grid-cols-10 gap-2">
-            {data.days.map((day, idx) => {
-              const isToday = idx === currentDayIndex;
-              const isLocked = idx > currentDayIndex; 
-              
-              let colorClass = "bg-zinc-900 border-zinc-800 text-zinc-500"; 
-              if (day.status === 'success') colorClass = day.quality === 'perfect' ? "bg-emerald-500/10 border-emerald-500 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.2)]" : "bg-emerald-900/10 border-emerald-800 text-emerald-600";
-              else if (day.status === 'weakness') colorClass = "bg-orange-950 border-orange-600 text-orange-500";
-              else if (day.permanentFail) colorClass = "bg-black border-red-600 text-red-600 animate-pulse";
-              else if (day.status === 'fail') colorClass = "bg-black border-red-900 text-red-900";
-              else if (isToday) colorClass = "bg-cyan-900/20 border-cyan-500 text-cyan-400 border-dashed animate-pulse";
-              else if (day.penaltyCount > 0) colorClass = "bg-yellow-950/20 border-yellow-700 text-yellow-600";
-
-              return (
-                <motion.button
-                  key={day.day}
-                  whileHover={!isLocked ? { scale: 1.05, y: -2, zIndex: 10 } : {}}
-                  onClick={() => handleDayClick(day)}
-                  disabled={isLocked}
-                  className={`relative aspect-square flex flex-col items-center justify-center border-2 rounded-lg font-black transition-all ${colorClass} ${isLocked ? 'opacity-40 cursor-not-allowed bg-zinc-950' : 'cursor-pointer hover:border-zinc-500'}`}
-                >
-                  <span className="text-[12px] md:text-[14px] leading-none mb-1">{day.day}</span>
-                  <span className="text-[8px] md:text-[9px] opacity-80 uppercase font-mono tracking-tighter">
-                    {getDayDateString(day.day, data.startDate)}
-                  </span>
-
-                  {day.day % 7 === 0 && <span className="absolute bottom-1 w-2 h-0.5 bg-cyan-600 rounded-full" title="День Восстановления" />}
-                  {day.late && <Clock size={10} className="absolute top-1 left-1 text-red-500" />}
-                  {day.quality === 'perfect' && <Trophy size={10} className="absolute top-1 right-1 text-yellow-500" />}
-                  {day.penaltyCount > 0 && !day.status && (
-                    <div className="absolute top-1 right-1 flex gap-[2px]">
-                      {Array.from({length: day.penaltyCount}).map((_, i) => <Zap key={i} size={8} className="text-yellow-500 fill-yellow-500" />)}
-                    </div>
-                  )}
-                </motion.button>
-              );
-            })}
-          </div>
-        </main>
+        <Dashboard days={state.days} stats={stats} currentWeek={currentWeek} weeks={weeks} />
+        <Checkpoints days={state.days} currentDayIndex={currentDayIndex} />
       </div>
 
-      <footer className="max-w-6xl mx-auto mt-12 flex justify-end relative z-10">
-        <button onClick={() => setShowResetConfirm(true)} className="text-[10px] uppercase font-mono text-zinc-800 hover:text-red-900 flex items-center gap-2 transition-all border border-transparent hover:border-red-900/50 px-3 py-1 rounded">
-          <ZapOff size={12} /> УБИТЬ СЕБЯ (HARD RESET)
-        </button>
-      </footer>
-
-      {/* Modal View */}
       <AnimatePresence>
-        {selectedDay && modalForm && evalLive && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/95 backdrop-blur-xl" />
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }} 
-              animate={shake ? { x: [-10, 10, -10, 10, 0], scale: 1, opacity: 1 } : { scale: 1, opacity: 1, x: 0 }} 
-              exit={{ scale: 0.95, opacity: 0 }}
-              className={`relative w-full max-w-lg max-h-[90vh] overflow-y-auto bg-[#0a0a0a] border-2 rounded-[2.5rem] p-8 md:p-10 shadow-2xl ${modalForm.penaltyCount > 0 && !selectedDay.status ? 'border-yellow-600/50 shadow-[0_0_30px_rgba(202,138,4,0.1)]' : 'border-white/5 shadow-white/5'} custom-scrollbar`}
-            >
-              <button onClick={() => setSelectedDay(null)} className="absolute top-6 right-6 text-zinc-600 hover:text-white transition-colors">
-                <XCircle size={24} />
-              </button>
-
-              <div className="mb-8">
-                <div className="flex items-center gap-4">
-                  <h2 className="text-5xl font-black italic uppercase leading-none">ДЕНЬ {modalForm.day}</h2>
-                  {evalLive.isLate && !selectedDay.status && <span className="bg-red-600 text-white text-[10px] px-2 py-1 rounded-full font-black animate-pulse">ПОЗДНО</span>}
-                  {isRestDay && <span className="bg-cyan-900/50 border border-cyan-500 text-cyan-400 text-[10px] px-2 py-1 rounded-full font-black">ВОССТАНОВЛЕНИЕ</span>}
-                </div>
-                <div className="flex flex-col gap-2 mt-3">
-                   <div className="flex items-center gap-2">
-                     <div className="text-sm text-zinc-400 font-mono tracking-widest uppercase border border-white/10 px-2 py-0.5 rounded">
-                       {getDayDateString(modalForm.day, data.startDate)}
-                     </div>
-                     <p className={`text-[10px] uppercase tracking-[0.3em] italic font-bold ${selectedDay.status ? 'text-zinc-500' : evalLive.status === 'success' ? 'text-emerald-500 animate-pulse' : evalLive.status === 'weakness' ? 'text-orange-500' : 'text-red-600'}`}>
-                       {selectedDay.status 
-                          ? `СТАТУС: ${selectedDay.status === 'success' ? 'ИДЕАЛ' : selectedDay.status === 'weakness' ? 'СЛАБОСТЬ' : 'ПРОВАЛ'}` 
-                          : `ПРОГНОЗ: ${evalLive.status === 'success' ? 'УСПЕХ' : evalLive.status === 'weakness' ? 'СЛАБОСТЬ' : 'ПРОВАЛ'}`
-                       }
-                     </p>
-                   </div>
-                   {modalForm.identityFocus && (
-                     <div className="text-[10px] font-black text-emerald-600 uppercase tracking-widest italic mt-2">
-                       ФОКУС: {modalForm.identityFocus}
-                     </div>
-                   )}
-                </div>
-              </div>
-
-              {isCP66Blocked && !selectedDay.status && (
-                <div className="mb-6 p-4 bg-red-950/40 border border-red-600/50 rounded-2xl flex items-start gap-3 text-red-500">
-                  <AlertTriangle className="shrink-0 mt-1" size={18} />
-                  <div>
-                    <div className="font-black text-xs uppercase tracking-widest">УСПЕХ ЗАБЛОКИРОВАН</div>
-                    <div className="text-[10px] uppercase mt-1 opacity-80">Чекпойнт 66 требует исторический Win Rate ≥75% и исторический стрик ≥5. Система отклонит успех.</div>
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-4">
-                {prevDayObj && prevDayObj.isMissed && (!prevDayObj.diagnosticCategory || !prevDayObj.microFix) && !selectedDay.status && (
-                  <div className="p-5 bg-red-950/20 border border-red-900/50 rounded-2xl space-y-3">
-                    <label className="block text-[10px] font-black uppercase text-red-500 tracking-widest">ДОЛГ ЗА ВЧЕРА (ДЕНЬ {prevDayObj.day}): ДИАГНОСТИКА СБОЯ</label>
-                    <select 
-                      value={modalDebtCategory} 
-                      onChange={e => setModalDebtCategory(e.target.value)}
-                      className="w-full bg-[#1a0000] border border-red-900/50 rounded-xl p-3 text-red-400 text-xs outline-none"
-                    >
-                      <option value="" disabled>Выбери причину сбоя ЦНС/системы...</option>
-                      {DOMAIN_DATA.DIAGNOSTIC_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <textarea
-                      value={modalDebtFix}
-                      onChange={(e) => setModalDebtFix(e.target.value)}
-                      className="w-full bg-[#1a0000] border border-red-900/50 rounded-xl p-3 text-sm text-red-200 outline-none h-16 resize-none"
-                      placeholder="Микро-фикс на сегодня (Мин. 5 симв)..."
-                    />
-                  </div>
-                )}
-
-                {/* Легкая Добыча - Micro Wins */}
-                {!selectedDay.status && (
-                  <div className="flex items-center justify-between p-4 bg-emerald-950/10 border border-emerald-900/30 rounded-2xl">
-                    <div>
-                      <div className="font-black text-emerald-600 text-[10px] uppercase tracking-widest mb-1 flex items-center gap-1"><Droplets size={10}/> ЛЁГКАЯ ДОБЫЧА</div>
-                      <div className="text-emerald-400 text-xs font-bold">{DOMAIN_DATA.MICRO_WINS[modalForm.day % DOMAIN_DATA.MICRO_WINS.length]}</div>
-                    </div>
-                  </div>
-                )}
-
-                {!selectedDay.status && !isRestDay && (
-                  <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-2xl text-xs">
-                    <div className="font-black text-zinc-500 uppercase tracking-widest mb-2">Вызов на сегодня:</div>
-                    <div className="text-cyan-400 font-bold">{DOMAIN_DATA.CHALLENGES[modalForm.day % DOMAIN_DATA.CHALLENGES.length]}</div>
-                  </div>
-                )}
-
-                <WeightTracker weight={modalForm.weight} setWeight={(v) => setModalForm(p => ({...p, weight: v}))} disabled={!!selectedDay.status} />
-
-                <TaskItem label="ПИТАНИЕ (РЕЖИМ)" checked={modalForm.nutrition} disabled={!!selectedDay.status} onChange={(v) => setModalForm(p => ({...p, nutrition: v}))} />
-                
-                <TaskItem 
-                  label={isRestDay ? "ПРОТОКОЛ ВОССТАНОВЛЕНИЯ (ПЛАН/ОТДЫХ)" : "ОБУЧЕНИЕ (1С / РАЗРАБОТКА)"} 
-                  checked={modalForm.study} 
-                  disabled={!!selectedDay.status} 
-                  onChange={(v) => setModalForm(p => ({...p, study: v}))} 
-                  isRest={isRestDay}
-                />
-                
-                {modalForm.penaltyCount > 0 && (
-                  <div className="p-4 border border-yellow-700/50 bg-yellow-950/10 rounded-xl space-y-3">
-                    <div className="text-[10px] font-black text-yellow-500 uppercase tracking-widest flex items-center gap-2">
-                       <AlertCircle size={14}/> ВНИМАНИЕ: АКТИВНЫЙ ДОЛГ ({modalForm.penaltyCount}) {isSurvivalMode && '- РЕЖИМ ВЫЖИВАНИЯ'}
-                    </div>
-                    {modalForm.penaltyCount >= 1 && <TaskItem label="ШТРАФНАЯ АКТИВНОСТЬ 01" checked={modalForm.extraTask1} disabled={!!selectedDay.status} onChange={(v) => setModalForm(p => ({...p, extraTask1: v}))} isExtra />}
-                    {modalForm.penaltyCount >= 2 && <TaskItem label="ШТРАФНАЯ АКТИВНОСТЬ 02" checked={modalForm.extraTask2} disabled={!!selectedDay.status} onChange={(v) => setModalForm(p => ({...p, extraTask2: v}))} isExtra />}
-                  </div>
-                )}
-
-                <div className="pt-2">
-                  <label className="block text-[10px] font-black uppercase text-zinc-700 mb-2 tracking-widest flex items-center gap-2 italic">
-                    <Target size={12} className="text-cyan-500" /> <span>ШАГ К ОФФЕРУ (МИН. 10 СИМВ.)</span>
-                  </label>
-                  <textarea
-                    value={modalForm.offerAction || ""}
-                    disabled={!!selectedDay.status}
-                    onChange={(e) => setModalForm(p => ({...p, offerAction: e.target.value}))}
-                    className="w-full bg-black border border-white/5 rounded-xl p-4 text-white focus:border-cyan-500 outline-none transition-all h-16 resize-none shadow-inner text-sm"
-                    placeholder="Что ты сделал сегодня ради 500к/мес?"
-                  />
-                </div>
-
-                <div className="pt-2">
-                  <label className="block text-[10px] font-black uppercase text-zinc-700 mb-2 tracking-widest flex justify-between italic">
-                    <span>ИТОГ ДНЯ (МИН. {modalForm.penaltyCount > 0 ? '20' : '10'} СИМВ.)</span>
-                    <span className={(modalForm.winText||"").length >= (modalForm.penaltyCount > 0 ? 20 : 10) ? 'text-emerald-500' : 'text-zinc-600'}>{(modalForm.winText||"").length}</span>
-                  </label>
-                  <textarea
-                    value={modalForm.winText}
-                    disabled={!!selectedDay.status}
-                    onChange={(e) => setModalForm(p => ({...p, winText: e.target.value}))}
-                    className="w-full bg-black border border-white/5 rounded-xl p-4 text-white focus:border-emerald-600 outline-none transition-all h-24 resize-none shadow-inner text-sm"
-                    placeholder={selectedDay.status ? modalForm.winText : "Что конкретно сделало тебя сильнее сегодня?"}
-                  />
-                </div>
-
-                {!selectedDay.status && (evalLive.status === 'fail' || evalLive.status === 'weakness') && (
-                   <div className="pt-4 border-t border-red-900/30 space-y-3">
-                     <label className="block text-[10px] font-black uppercase text-red-500 tracking-widest italic">
-                       ДИАГНОСТИКА СБОЯ ЗА СЕГОДНЯ
-                     </label>
-                     <select 
-                       value={modalForm.diagnosticCategory || ""} 
-                       onChange={e => setModalForm(p => ({...p, diagnosticCategory: e.target.value}))}
-                       className="w-full bg-[#1a0000] border border-red-900/50 rounded-xl p-3 text-red-400 text-xs outline-none"
-                     >
-                       <option value="" disabled>Выбери причину системного сбоя...</option>
-                       {DOMAIN_DATA.DIAGNOSTIC_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                     </select>
-                     <textarea
-                       value={modalForm.microFix || ""}
-                       onChange={(e) => setModalForm(p => ({...p, microFix: e.target.value}))}
-                       className="w-full bg-[#1a0000] border border-red-900/50 rounded-xl p-4 text-red-400 focus:border-red-600 outline-none transition-all h-16 resize-none shadow-inner text-sm"
-                       placeholder="Микро-фикс на завтра (Мин. 5 симв)..."
-                     />
-                     <div className="text-[10px] text-red-600 mt-2 italic text-center font-bold">
-                       {painText}
-                     </div>
-                   </div>
-                )}
-
-              </div>
-
-              {!selectedDay.status && (
-                <div className="mt-8">
-                  {evalLive.status === 'success' && !isCP66Blocked && !isDebtUnpaid && (
-                     <div className="mb-4 p-3 bg-red-950/20 border border-red-900/40 rounded-xl text-red-500 text-[10px] uppercase font-black tracking-widest text-center animate-pulse">
-                       {randomPainTrigger}
-                     </div>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <button
-                      onClick={() => executeDayClosure('fail')}
-                      disabled={!evalLive.isValidForFail || (isDebtUnpaid && (modalDebtFix.length < 5 || !modalDebtCategory))}
-                      className={`py-4 rounded-xl font-black uppercase tracking-widest transition-all ${
-                        evalLive.isValidForFail && (!isDebtUnpaid || (modalDebtFix.length >= 5 && modalDebtCategory))
-                        ? 'bg-zinc-900 text-red-500 border border-red-900/30 hover:bg-red-950/40' 
-                        : 'bg-black text-zinc-800 border border-white/5 cursor-not-allowed'
-                      }`}
-                    >
-                      Провал
-                    </button>
-
-                    <button
-                      onClick={() => executeDayClosure('success')}
-                      disabled={isCP66Blocked || !evalLive.isValidForSuccess || isDebtUnpaid}
-                      className={`py-4 rounded-xl font-black uppercase tracking-widest transition-all ${
-                        (!isCP66Blocked && evalLive.isValidForSuccess && !isDebtUnpaid)
-                        ? 'bg-emerald-700 text-white shadow-lg shadow-emerald-900/20 hover:bg-emerald-600' 
-                        : 'bg-zinc-950 text-zinc-800 cursor-not-allowed'}
-                      `}
-                    >
-                      Успех
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {selectedDay.status && (
-                <div className={`mt-8 p-4 border rounded-xl flex items-center justify-center gap-3 font-black uppercase italic text-xs tracking-widest ${
-                  selectedDay.status === 'success' ? 'border-emerald-500/20 text-emerald-500 bg-emerald-500/5' : 
-                  selectedDay.status === 'weakness' ? 'border-orange-500/20 text-orange-500 bg-orange-500/5' : 
-                  'border-red-900/30 text-red-900 bg-red-950/5'
-                }`}>
-                  <ShieldCheck size={18} /> ДЕНЬ ЗАФИКСИРОВАН
-                </div>
-              )}
-            </motion.div>
-          </div>
+        {showExport && (
+          <ExportModal
+            exportMode={exportMode}
+            setExportMode={setExportMode}
+            data={exportMode === 'markdown' ? exportData.markdown : exportData.json}
+            copied={copied}
+            onCopy={copyExport}
+            onDownload={downloadExport}
+            onClose={() => setShowExport(false)}
+          />
         )}
 
-        {/* Achievement Modal */}
-        {unlockedAchievement && (
-           <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={() => setUnlockedAchievement(null)}>
-              <motion.div initial={{ scale: 0.5, y: 50, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} 
-                className="bg-[#050505] border-2 border-emerald-500 p-8 rounded-[2rem] text-center shadow-[0_0_50px_rgba(16,185,129,0.2)] max-w-sm">
-                 <Trophy size={80} className="text-emerald-500 mx-auto mb-6 drop-shadow-[0_0_20px_emerald]" />
-                 <h3 className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.3em] mb-2">Достижение разблокировано</h3>
-                 <h2 className="text-3xl font-black text-white italic uppercase mb-3">{unlockedAchievement.title}</h2>
-                 <p className="text-zinc-400 text-xs uppercase tracking-widest leading-relaxed">{unlockedAchievement.desc}</p>
-                 <button onClick={() => setUnlockedAchievement(null)} className="mt-8 px-8 py-3 bg-emerald-600 text-white font-black uppercase rounded-full text-xs hover:bg-emerald-500">
-                   Продолжить путь
-                 </button>
-              </motion.div>
-           </div>
-        )}
-
-        {/* Checkpoint Alert */}
-        {checkpointAlert && (
-           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/98 backdrop-blur-3xl">
-              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center max-w-xl">
-                  {checkpointAlert === 'guilty' ? <Skull size={100} className="text-red-600 mx-auto mb-8 drop-shadow-[0_0_30px_red]" /> : 
-                   checkpointAlert.includes('fail') ? <XCircle size={100} className="text-red-600 mx-auto mb-8 drop-shadow-[0_0_30px_red]" /> : 
-                   <Trophy size={100} className="text-emerald-500 mx-auto mb-8 drop-shadow-[0_0_30px_emerald]" />}
-                  
-                  <h2 className="text-6xl font-black text-white uppercase italic mb-6">
-                    {checkpointAlert === 'guilty' ? 'ПРИГОВОР: ВИНОВЕН' : 
-                     checkpointAlert === 'failFinal' ? 'КРАХ МИССИИ' : 
-                     checkpointAlert === 'successFinal' ? 'БОЖЕСТВО' : 
-                     checkpointAlert === 'fail' ? 'ЧЕКПОЙНТ ПРОВАЛЕН' : 'ЧЕКПОЙНТ ПРОЙДЕН'}
-                  </h2>
-                  <p className="text-zinc-500 font-mono text-lg mb-12 uppercase tracking-tighter">
-                    {checkpointAlert === 'guilty' ? 'Ты не достоин успеха. Суд Божественного Шоу отклонил твою апелляцию. Страдай дальше.' :
-                     checkpointAlert.includes('fail') ? 'Твои стандарты оказались недостаточно высоки (или вес > 65кг). Система отвергла твой прогресс.' : 
-                     'Твоя дисциплина — это искусство. Ты достоин продолжать.'}
-                  </p>
-                  <button onClick={() => setCheckpointAlert(null)} className="px-12 py-4 bg-white text-black font-black uppercase rounded-full hover:bg-gray-200">
-                    ПРИНЯТЬ РЕАЛЬНОСТЬ
-                  </button>
-              </motion.div>
-           </div>
-        )}
-
-        {/* Подтверждение сброса */}
-        {showResetConfirm && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/95">
-            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-[#050505] border-2 border-red-900 p-10 rounded-[3rem] max-w-sm text-center shadow-[0_0_50px_rgba(220,38,38,0.2)]">
-              <h3 className="text-3xl font-black text-red-600 mb-6 italic uppercase tracking-tighter text-center">СМЕРТЬ</h3>
-              <p className="text-zinc-500 mb-10 uppercase text-[10px] leading-relaxed tracking-[0.2em] font-bold">
-                Твой ранг, ачивки и прогресс будут стерты. Ты снова станешь никем. Начать заново с нуля?
-              </p>
-              <div className="flex gap-4">
-                <button onClick={() => setShowResetConfirm(false)} className="flex-1 py-4 bg-zinc-900 rounded-2xl font-bold uppercase text-[10px]">ЖИТЬ</button>
-                <button onClick={() => { dispatchWithEffects({type:'DEATH_RESET'}); setShowResetConfirm(false); }} className="flex-1 py-4 bg-red-900 text-white rounded-2xl font-black uppercase text-[10px] hover:bg-red-800 transition-colors">УМЕРЕТЬ</button>
-              </div>
-            </motion.div>
-          </div>
+        {confirmReset && (
+          <ConfirmReset onCancel={() => setConfirmReset(false)} onConfirm={resetJourney} />
         )}
       </AnimatePresence>
-      <style dangerouslySetInnerHTML={{__html: `
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
-      `}} />
     </div>
   );
 }
 
-// ==========================================
-// [6. UI HELPERS & COMPONENTS]
-// ==========================================
-function WeightChart({ days }) {
-  const weightDays = days.filter(d => d.weight && d.status !== null).slice(-7);
-  
-  if (weightDays.length < 2) {
-    return <div className="text-[10px] text-zinc-600 font-mono uppercase italic">Недостаточно данных для графика...</div>;
+function StartScreen({ onStart }) {
+  return (
+    <div className="min-h-screen bg-[#fbf7ef] text-slate-900">
+      <div className="mx-auto grid min-h-screen max-w-6xl place-items-center px-4 py-10">
+        <motion.section
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="grid w-full gap-6 lg:grid-cols-[1fr_0.82fr]"
+        >
+          <div className="border border-[#eadfcd] bg-[#fffaf1] p-6 shadow-sm sm:p-8 rounded-lg">
+            <div className="mb-8 inline-flex items-center gap-2 border border-[#d6e5d2] bg-[#eef7eb] px-3 py-2 text-sm font-semibold text-[#436841] rounded-md">
+              <Sparkles size={18} />
+              120 дней роста
+            </div>
+            <h1 className="max-w-3xl text-4xl font-black leading-tight text-slate-950 sm:text-5xl">
+              Offer+, тело и сознание в одной живой панели
+            </h1>
+            <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-600">
+              Старт фиксируется сегодняшней датой. Дальше приложение считает 120 дней,
+              показывает рост по времени, весу, питанию, артефактам и результатам.
+            </p>
+            <button
+              onClick={onStart}
+              className="mt-8 inline-flex items-center gap-2 bg-slate-950 px-5 py-3 font-bold text-white shadow-sm transition hover:bg-slate-800 rounded-md"
+            >
+              <Play size={18} />
+              Начать сегодня
+            </button>
+          </div>
+
+          <div className="grid gap-3">
+            <StartMetric icon={<Target size={20} />} title="Offer+" text="Действия, время, артефакты, итоговая траектория." />
+            <StartMetric icon={<Utensils size={20} />} title="Питание" text="1800 как топ, 2300 как верхняя граница." />
+            <StartMetric icon={<Scale size={20} />} title="Вес" text="График покажет, куда реально идёт тело." />
+            <StartMetric icon={<BrainCircuit size={20} />} title="НС" text="Ежедневная отметка и минуты практики." />
+          </div>
+        </motion.section>
+      </div>
+    </div>
+  );
+}
+
+function StartMetric({ icon, title, text }) {
+  return (
+    <div className="border border-[#e7ddca] bg-white/75 p-5 shadow-sm rounded-lg">
+      <div className="mb-3 flex items-center gap-3 text-slate-900">
+        <span className="grid h-10 w-10 place-items-center bg-[#eff6ff] text-[#356d92] rounded-md">{icon}</span>
+        <h2 className="text-lg font-black">{title}</h2>
+      </div>
+      <p className="leading-7 text-slate-600">{text}</p>
+    </div>
+  );
+}
+
+function Header({ stats, currentDayIndex, onExport, onReset }) {
+  return (
+    <header className="border border-[#eadfcd] bg-white/85 p-4 shadow-sm backdrop-blur rounded-lg">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-sm font-semibold text-[#5c7955]">
+            <CalendarDays size={16} />
+            День {currentDayIndex + 1} из {TOTAL_DAYS}
+            <span className="text-slate-300">/</span>
+            Уровень {stats.level}
+          </div>
+          <h1 className="text-3xl font-black leading-tight text-slate-950 sm:text-4xl">
+            Панель роста Offer+
+          </h1>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 sm:flex">
+          <HeaderPill icon={<Flame size={16} />} label="XP" value={stats.xp} />
+          <HeaderPill icon={<Target size={16} />} label="Offer+" value={`${(stats.offerMinutes / 60).toFixed(1)} ч`} />
+          <HeaderPill icon={<Scale size={16} />} label="Вес" value={stats.lastWeight ? `${stats.lastWeight} кг` : '--'} />
+          <button
+            onClick={onExport}
+            className="inline-flex items-center justify-center gap-2 border border-[#c8d9e7] bg-[#edf7ff] px-3 py-2 text-sm font-bold text-[#255b7a] transition hover:bg-[#dff0fc] rounded-md"
+          >
+            <Download size={16} />
+            Экспорт
+          </button>
+          <button
+            onClick={onReset}
+            className="inline-flex items-center justify-center gap-2 border border-[#ecd3c6] bg-[#fff4ed] px-3 py-2 text-sm font-bold text-[#8a4b2d] transition hover:bg-[#ffe9dc] rounded-md"
+          >
+            <RotateCcw size={16} />
+            Старт
+          </button>
+        </div>
+      </div>
+      <div className="mt-4 h-3 overflow-hidden bg-[#edf1e8] rounded-md">
+        <div
+          className="h-full bg-[#7c9a78] transition-all duration-700"
+          style={{ width: `${stats.levelProgress}%` }}
+        />
+      </div>
+    </header>
+  );
+}
+
+function HeaderPill({ icon, label, value }) {
+  return (
+    <div className="inline-flex items-center gap-2 border border-[#e5dccb] bg-[#fffaf1] px-3 py-2 rounded-md">
+      <span className="text-[#7c9a78]">{icon}</span>
+      <span className="text-xs font-semibold text-slate-500">{label}</span>
+      <span className="font-black text-slate-950">{value}</span>
+    </div>
+  );
+}
+
+function TodayPanel({ day, evaluation, onChange, onSave, activeDayIndex, currentDayIndex }) {
+  if (!day) return null;
+  const editable = activeDayIndex <= currentDayIndex;
+  const tier = evaluation.id === 'draft' ? evaluation : TIERS[evaluation.id];
+
+  return (
+    <section className="border border-[#eadfcd] bg-white/90 p-4 shadow-sm rounded-lg">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <div className="mb-1 text-sm font-bold text-slate-500">{formatDate(day.date)}</div>
+          <h2 className="text-2xl font-black text-slate-950">День {day.day}</h2>
+        </div>
+        <ResultBadge evaluation={evaluation} />
+      </div>
+
+      <div className="mb-5 grid gap-2 sm:grid-cols-3">
+        <ScoreChip label="Калории" value={day.calories ? `${day.calories}` : '--'} tone={num(day.calories) <= CALORIE_TOP && num(day.calories) > 0 ? 'top' : num(day.calories) <= CALORIE_LIMIT && num(day.calories) > 0 ? 'ok' : 'draft'} />
+        <ScoreChip label="Offer+" value={day.offerMinutes ? `${day.offerMinutes} мин` : '--'} tone={num(day.offerMinutes) >= 120 ? 'top' : num(day.offerMinutes) >= 60 ? 'ok' : 'draft'} />
+        <ScoreChip label="Score" value={`${evaluation.score}%`} tone={evaluation.id === 'breakthrough' ? 'top' : evaluation.id !== 'draft' ? 'ok' : 'draft'} />
+      </div>
+
+      <div className="grid gap-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ToggleField
+            icon={<BrainCircuit size={18} />}
+            label="НС выполнено"
+            checked={day.nsDone}
+            disabled={!editable}
+            onChange={(checked) => onChange({ ...day, nsDone: checked })}
+          />
+          <NumberField
+            icon={<Timer size={18} />}
+            label="НС, минуты"
+            value={day.nsMinutes}
+            disabled={!editable}
+            min="0"
+            onChange={(value) => onChange({ ...day, nsMinutes: value })}
+          />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <NumberField
+            icon={<Target size={18} />}
+            label="Offer+, минуты"
+            value={day.offerMinutes}
+            disabled={!editable}
+            min="0"
+            onChange={(value) => onChange({ ...day, offerMinutes: value })}
+          />
+          <SelectField
+            icon={<FileText size={18} />}
+            label="Артефакт"
+            value={day.artifactType}
+            disabled={!editable}
+            onChange={(value) => onChange({ ...day, artifactType: value })}
+            options={ARTIFACT_TYPES}
+          />
+        </div>
+
+        <TextField
+          icon={<Zap size={18} />}
+          label="Что сделал к Offer+"
+          value={day.offerAction}
+          disabled={!editable}
+          placeholder="Например: обновил блок резюме, отправил 2 отклика, разобрал вакансию"
+          onChange={(value) => onChange({ ...day, offerAction: value })}
+        />
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <NumberField
+            icon={<Utensils size={18} />}
+            label="Калории"
+            value={day.calories}
+            disabled={!editable}
+            min="0"
+            onChange={(value) => onChange({ ...day, calories: value })}
+          />
+          <NumberField
+            icon={<Activity size={18} />}
+            label="Приёмы пищи"
+            value={day.meals}
+            disabled={!editable}
+            min="0"
+            onChange={(value) => onChange({ ...day, meals: value })}
+          />
+          <NumberField
+            icon={<Scale size={18} />}
+            label="Вес, кг"
+            value={day.weight}
+            disabled={!editable}
+            min="0"
+            step="0.1"
+            onChange={(value) => onChange({ ...day, weight: value })}
+          />
+        </div>
+
+        <TextField
+          icon={<Heart size={18} />}
+          label="Итог одной строкой"
+          value={day.summary}
+          disabled={!editable}
+          placeholder="Что сегодня стало сильнее?"
+          onChange={(value) => onChange({ ...day, summary: value })}
+        />
+      </div>
+
+      <div className="mt-5 border border-[#e8dfce] bg-[#fffaf1] p-4 rounded-lg">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-bold text-slate-500">Живой результат</div>
+            <div className="text-xl font-black" style={{ color: tier.text }}>{evaluation.title}</div>
+          </div>
+          <div className="text-right">
+            <div className="text-sm font-bold text-slate-500">XP</div>
+            <div className="text-2xl font-black text-slate-950">+{evaluation.xp}</div>
+          </div>
+        </div>
+        <div className="h-2 overflow-hidden bg-white rounded-md">
+          <div
+            className="h-full transition-all duration-500"
+            style={{ width: `${evaluation.score}%`, backgroundColor: tier.color }}
+          />
+        </div>
+        {evaluation.blockers.length > 0 && (
+          <div className="mt-3 grid gap-2">
+            {evaluation.blockers.map((blocker) => (
+              <div key={blocker} className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+                <AlertCircle size={15} className="text-[#d18b47]" />
+                {blocker}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <button
+        onClick={onSave}
+        disabled={!editable}
+        className="mt-4 flex w-full items-center justify-center gap-2 bg-slate-950 px-4 py-3 font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 rounded-md"
+      >
+        <CheckCircle2 size={18} />
+        Зафиксировать день
+      </button>
+    </section>
+  );
+}
+
+function ToggleField({ icon, label, checked, onChange, disabled }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`flex min-h-[72px] items-center justify-between border p-3 text-left transition rounded-lg ${
+        checked
+          ? 'border-[#cfe2c8] bg-[#eef6e9] text-[#365f36]'
+          : 'border-[#e8dfce] bg-white text-slate-600 hover:bg-[#fffaf1]'
+      }`}
+    >
+      <span className="flex items-center gap-3 font-bold">
+        {icon}
+        {label}
+      </span>
+      {checked ? <CheckCircle2 size={20} /> : <span className="h-5 w-5 border border-slate-300 rounded-md" />}
+    </button>
+  );
+}
+
+function NumberField({ icon, label, value, onChange, disabled, min, step = '1' }) {
+  return (
+    <label className="block border border-[#e8dfce] bg-white p-3 rounded-lg">
+      <span className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-600">
+        {icon}
+        {label}
+      </span>
+      <input
+        type="number"
+        value={value}
+        min={min}
+        step={step}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full border border-[#e6dcc8] bg-[#fffdf8] px-3 py-2 text-lg font-black text-slate-950 outline-none transition focus:border-[#8fb989] disabled:text-slate-400 rounded-md"
+      />
+    </label>
+  );
+}
+
+function SelectField({ icon, label, value, onChange, disabled, options }) {
+  return (
+    <label className="block border border-[#e8dfce] bg-white p-3 rounded-lg">
+      <span className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-600">
+        {icon}
+        {label}
+      </span>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full border border-[#e6dcc8] bg-[#fffdf8] px-3 py-2 text-base font-bold text-slate-950 outline-none transition focus:border-[#8fb989] disabled:text-slate-400 rounded-md"
+      >
+        <option value="">Без артефакта</option>
+        {options.map((option) => (
+          <option key={option} value={option}>{option}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function TextField({ icon, label, value, onChange, disabled, placeholder }) {
+  return (
+    <label className="block border border-[#e8dfce] bg-white p-3 rounded-lg">
+      <span className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-600">
+        {icon}
+        {label}
+      </span>
+      <textarea
+        value={value}
+        disabled={disabled}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-20 w-full resize-none border border-[#e6dcc8] bg-[#fffdf8] px-3 py-2 text-base font-semibold leading-6 text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#8fb989] disabled:text-slate-400 rounded-md"
+      />
+    </label>
+  );
+}
+
+function ResultBadge({ evaluation }) {
+  const tier = evaluation.id === 'draft' ? evaluation : TIERS[evaluation.id];
+  return (
+    <div
+      className="inline-flex items-center gap-2 border px-3 py-2 text-sm font-black rounded-md"
+      style={{ backgroundColor: tier.bg, borderColor: tier.border, color: tier.text }}
+    >
+      {evaluation.id === 'breakthrough' ? <Trophy size={17} /> : evaluation.id === 'growth' ? <Sparkles size={17} /> : <CheckCircle2 size={17} />}
+      {evaluation.short}
+    </div>
+  );
+}
+
+function ScoreChip({ label, value, tone }) {
+  const styles = {
+    top: 'border-[#f1d2a7] bg-[#fff3df] text-[#81501f]',
+    ok: 'border-[#c8e1ef] bg-[#eaf5fb] text-[#255b7a]',
+    draft: 'border-[#e8dfce] bg-[#fffaf1] text-slate-600',
+  };
+  return (
+    <div className={`border p-3 rounded-lg ${styles[tone]}`}>
+      <div className="text-xs font-bold">{label}</div>
+      <div className="mt-1 text-xl font-black">{value}</div>
+    </div>
+  );
+}
+
+function PathPanel({ days, activeDayIndex, currentDayIndex, onSelect, stats, signal }) {
+  return (
+    <section className="border border-[#eadfcd] bg-white/90 p-4 shadow-sm rounded-lg">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="mb-1 flex items-center gap-2 text-sm font-bold text-slate-500">
+            <Flag size={16} />
+            Путь 120 дней
+          </div>
+          <h2 className="text-2xl font-black text-slate-950">Рост видно на дистанции</h2>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <MiniStat label="База" value={stats.tierCounts.base || 0} />
+          <MiniStat label="Рост" value={stats.tierCounts.growth || 0} />
+          <MiniStat label="Топ" value={stats.tierCounts.breakthrough || 0} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-10 gap-1 sm:grid-cols-[repeat(15,minmax(0,1fr))] md:grid-cols-[repeat(20,minmax(0,1fr))]">
+        {days.map((day, index) => {
+          const locked = index > currentDayIndex;
+          const tier = day.result ? TIERS[day.result] : null;
+          const isActive = index === activeDayIndex;
+          const isToday = index === currentDayIndex;
+          return (
+            <button
+              key={day.day}
+              type="button"
+              disabled={locked}
+              onClick={() => onSelect(index)}
+              title={`День ${day.day}: ${day.result ? tier.title : locked ? 'будущий' : 'не отмечен'}`}
+              className={`relative grid aspect-square min-h-[34px] place-items-center border text-xs font-black transition rounded-md ${
+                locked ? 'cursor-not-allowed border-[#ede5d8] bg-[#f6f0e6] text-slate-300' : 'hover:scale-[1.03]'
+              } ${isActive ? 'ring-2 ring-slate-950 ring-offset-2 ring-offset-white' : ''}`}
+              style={{
+                backgroundColor: tier ? tier.bg : isToday ? '#edf7ff' : '#fffdf8',
+                borderColor: tier ? tier.border : isToday ? '#b9d9ed' : '#e8dfce',
+                color: tier ? tier.text : isToday ? '#255b7a' : '#64748b',
+              }}
+            >
+              {locked ? <Lock size={13} /> : day.day}
+              {day.result === 'breakthrough' && <Star size={10} className="absolute right-1 top-1 fill-current" />}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <PathInsight icon={<Flame size={18} />} label="Серия" value={`${stats.streak} дн`} />
+        <PathInsight icon={<Target size={18} />} label="Offer+ артефакты" value={stats.artifacts} />
+        <PathInsight icon={<CalendarDays size={18} />} label="Закрытие пути" value={`${stats.completionRate}%`} />
+      </div>
+
+      {signal && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-4 border border-[#d8e6d2] bg-[#f1f8ed] p-4 text-[#42653f] rounded-lg"
+        >
+          <div className="flex items-center gap-2 font-black">
+            <Sparkles size={18} />
+            {signal.text}
+          </div>
+        </motion.div>
+      )}
+    </section>
+  );
+}
+
+function MiniStat({ label, value }) {
+  return (
+    <div className="min-w-[72px] border border-[#e8dfce] bg-[#fffaf1] px-3 py-2 rounded-md">
+      <div className="text-lg font-black text-slate-950">{value}</div>
+      <div className="text-xs font-bold text-slate-500">{label}</div>
+    </div>
+  );
+}
+
+function PathInsight({ icon, label, value }) {
+  return (
+    <div className="border border-[#e8dfce] bg-[#fffaf1] p-3 rounded-lg">
+      <div className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-500">{icon}{label}</div>
+      <div className="text-2xl font-black text-slate-950">{value}</div>
+    </div>
+  );
+}
+
+function Dashboard({ days, stats, currentWeek, weeks }) {
+  const weightTrend = getTrendLabel(stats.weightDelta);
+  const TrendIcon = weightTrend.icon;
+  const diagnosis = getDiagnosis(stats, currentWeek);
+
+  return (
+    <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ChartCard
+          icon={<LineChart size={18} />}
+          title="Вес"
+          subtitle={`${stats.firstWeight || '--'} -> ${stats.lastWeight || '--'} кг`}
+          aside={<span className={`inline-flex items-center gap-1 text-sm font-black ${weightTrend.tone}`}><TrendIcon size={16} />{weightTrend.label}</span>}
+        >
+          <LineChartSvg
+            data={days.map((day) => ({ day: day.day, value: num(day.weight) })).filter((item) => item.value)}
+            color="#7c9a78"
+            fill="#e5f2de"
+            unit="кг"
+            targetValue={stats.firstWeight ? stats.firstWeight - 5 : null}
+          />
+        </ChartCard>
+
+        <ChartCard
+          icon={<Utensils size={18} />}
+          title="Калории"
+          subtitle={`среднее ${stats.avgCalories || '--'} ккал`}
+          aside={<span className="text-sm font-black text-[#81501f]">1800 / 2300</span>}
+        >
+          <LineChartSvg
+            data={days.map((day) => ({ day: day.day, value: num(day.calories) })).filter((item) => item.value)}
+            color="#d18b47"
+            fill="#fff1dc"
+            unit="ккал"
+            guideValues={[CALORIE_TOP, CALORIE_LIMIT]}
+          />
+        </ChartCard>
+
+        <ChartCard
+          icon={<Timer size={18} />}
+          title="Время"
+          subtitle={`фокус ${(stats.focusMinutes / 60).toFixed(1)} ч`}
+          aside={<span className="text-sm font-black text-[#255b7a]">НС + Offer+</span>}
+        >
+          <TimeBars days={days} />
+        </ChartCard>
+
+        <ChartCard
+          icon={<Target size={18} />}
+          title="Offer+"
+          subtitle={`${stats.artifacts} артефактов`}
+          aside={<span className="text-sm font-black text-[#365f36]">{(stats.offerMinutes / 60).toFixed(1)} ч</span>}
+        >
+          <OfferProgress days={days} />
+        </ChartCard>
+      </div>
+
+      <div className="grid gap-4">
+        <WeeklyPanel week={currentWeek} />
+        <DiagnosisPanel items={diagnosis} />
+        <WeeksStrip weeks={weeks} />
+      </div>
+    </section>
+  );
+}
+
+function ChartCard({ icon, title, subtitle, aside, children }) {
+  return (
+    <div className="border border-[#eadfcd] bg-white/90 p-4 shadow-sm rounded-lg">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <div className="mb-1 flex items-center gap-2 text-sm font-bold text-slate-500">{icon}{title}</div>
+          <div className="text-xl font-black text-slate-950">{subtitle}</div>
+        </div>
+        {aside}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function LineChartSvg({ data, color, fill, unit, guideValues = [], targetValue = null }) {
+  if (!data.length) {
+    return <EmptyChart text="Нужна первая отметка" />;
   }
 
-  const weights = weightDays.map(d => parseFloat(d.weight));
-  const minWeight = Math.min(...weights);
-  const maxWeight = Math.max(...weights);
-  
+  const values = data.map((item) => item.value);
+  const guides = [...guideValues, targetValue].filter(Boolean);
+  const minValue = Math.min(...values, ...guides);
+  const maxValue = Math.max(...values, ...guides);
+  const pad = Math.max(1, (maxValue - minValue) * 0.14);
+  const yMin = minValue - pad;
+  const yMax = maxValue + pad;
+  const width = 420;
+  const height = 180;
+  const left = 34;
+  const right = 12;
+  const top = 12;
+  const bottom = 28;
+
+  const xFor = (day) => left + ((day - 1) / (TOTAL_DAYS - 1)) * (width - left - right);
+  const yFor = (value) => top + ((yMax - value) / (yMax - yMin)) * (height - top - bottom);
+  const line = data.map((item) => `${xFor(item.day)},${yFor(item.value)}`).join(' ');
+  const area = data.length === 1
+    ? `${xFor(data[0].day) - 3},${height - bottom} ${line} ${xFor(data[0].day) + 3},${height - bottom}`
+    : `${left},${height - bottom} ${line} ${xFor(data.at(-1).day)},${height - bottom}`;
+
   return (
-    <div className="flex items-end gap-2 h-16 mt-4">
-      {weightDays.map(d => {
-         const w = parseFloat(d.weight);
-         const hPercent = maxWeight === minWeight ? 50 : ((w - minWeight) / (maxWeight - minWeight)) * 100;
-         return (
-           <div key={d.day} className="flex-1 bg-black rounded-t-sm flex flex-col justify-end group relative" title={`${w} кг`}>
-              <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-[8px] text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity font-black">{w}</div>
-              <div className="bg-emerald-600 hover:bg-emerald-500 w-full rounded-t-sm transition-all" style={{ height: `${Math.max(10, hPercent)}%` }}></div>
-              <div className="text-[7px] text-center mt-1 text-zinc-600 font-mono">{d.day}</div>
-           </div>
-         )
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-[220px] w-full overflow-visible">
+      {[0, 1, 2, 3].map((index) => {
+        const y = top + index * ((height - top - bottom) / 3);
+        return <line key={index} x1={left} y1={y} x2={width - right} y2={y} stroke="#e7ddca" strokeWidth="1" />;
+      })}
+      {[1, 30, 60, 90, 120].map((day) => (
+        <g key={day}>
+          <line x1={xFor(day)} y1={top} x2={xFor(day)} y2={height - bottom} stroke="#efe7d8" strokeWidth="1" />
+          <text x={xFor(day)} y={height - 8} textAnchor="middle" fontSize="10" fill="#64748b">{day}</text>
+        </g>
+      ))}
+      {guideValues.map((guide) => (
+        <g key={guide}>
+          <line x1={left} y1={yFor(guide)} x2={width - right} y2={yFor(guide)} stroke="#d18b47" strokeDasharray="5 5" strokeWidth="1.4" />
+          <text x={left + 4} y={yFor(guide) - 5} fontSize="10" fill="#81501f">{guide}</text>
+        </g>
+      ))}
+      {targetValue && (
+        <g>
+          <line x1={left} y1={yFor(targetValue)} x2={width - right} y2={yFor(targetValue)} stroke="#7c9a78" strokeDasharray="5 5" strokeWidth="1.4" />
+          <text x={left + 4} y={yFor(targetValue) - 5} fontSize="10" fill="#365f36">-5 кг</text>
+        </g>
+      )}
+      <polygon points={area} fill={fill} opacity="0.9" />
+      <polyline points={line} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+      {data.map((item) => (
+        <g key={`${item.day}-${item.value}`}>
+          <circle cx={xFor(item.day)} cy={yFor(item.value)} r="4.5" fill="#fffdf8" stroke={color} strokeWidth="3" />
+          <title>{`День ${item.day}: ${item.value} ${unit}`}</title>
+        </g>
+      ))}
+      <text x={left} y={top + 3} fontSize="10" fill="#64748b">{Math.round(yMax)} {unit}</text>
+      <text x={left} y={height - bottom - 4} fontSize="10" fill="#64748b">{Math.round(yMin)} {unit}</text>
+    </svg>
+  );
+}
+
+function EmptyChart({ text }) {
+  return (
+    <div className="grid h-[220px] place-items-center border border-dashed border-[#e1d6c3] bg-[#fffaf1] text-center text-sm font-bold text-slate-500 rounded-lg">
+      {text}
+    </div>
+  );
+}
+
+function TimeBars({ days }) {
+  const filled = days.filter((day) => num(day.nsMinutes) || num(day.offerMinutes)).slice(-21);
+  if (!filled.length) return <EmptyChart text="Время появится после первых отметок" />;
+  const maxValue = Math.max(...filled.map((day) => num(day.nsMinutes) + num(day.offerMinutes)), 60);
+  return (
+    <div className="flex h-[220px] items-end gap-2 border border-[#e8dfce] bg-[#fffdf8] p-3 rounded-lg">
+      {filled.map((day) => {
+        const ns = num(day.nsMinutes);
+        const offer = num(day.offerMinutes);
+        const total = ns + offer;
+        return (
+          <div key={day.day} className="flex h-full flex-1 flex-col justify-end gap-1">
+            <div className="flex min-h-[148px] flex-col justify-end overflow-hidden rounded-md bg-[#f3ecdf]">
+              <div
+                className="bg-[#4f8fb9] transition-all"
+                style={{ height: `${(offer / maxValue) * 100}%` }}
+                title={`Offer+ ${offer} мин`}
+              />
+              <div
+                className="bg-[#7c9a78] transition-all"
+                style={{ height: `${(ns / maxValue) * 100}%` }}
+                title={`НС ${ns} мин`}
+              />
+            </div>
+            <div className="text-center text-[10px] font-bold text-slate-500">{day.day}</div>
+            <div className="text-center text-[10px] font-black text-slate-700">{total}</div>
+          </div>
+        );
       })}
     </div>
   );
 }
 
-function WeightTracker({ weight, setWeight, disabled }) {
-  const percent = Math.max(0, Math.min(100, (APP_CONFIG.WEIGHT_START - parseFloat(weight || APP_CONFIG.WEIGHT_START)) / (APP_CONFIG.WEIGHT_START - APP_CONFIG.WEIGHT_TARGET) * 100));
-  
+function OfferProgress({ days }) {
+  const closed = days.filter((day) => day.result);
+  if (!closed.length) return <EmptyChart text="Offer+ заполнится после закрытия дня" />;
+  const cumulative = [];
+  closed.reduce((sum, day) => {
+    const next = sum + num(day.offerMinutes);
+    cumulative.push({ day: day.day, value: Number((next / 60).toFixed(1)) });
+    return next;
+  }, 0);
+  return <LineChartSvg data={cumulative} color="#4f8fb9" fill="#eaf5fb" unit="ч" />;
+}
+
+function WeeklyPanel({ week }) {
+  if (!week) return null;
   return (
-    <div className="bg-black p-4 rounded-xl border border-white/5">
-      <label className="text-[10px] uppercase font-black tracking-widest text-zinc-500 mb-1 block">ВЕС (КГ) – ЦЕЛЬ {APP_CONFIG.WEIGHT_TARGET}</label>
-      <input 
-        type="number" step="0.1" 
-        value={weight || ""} 
-        onChange={e => setWeight(e.target.value)}
-        disabled={disabled}
-        placeholder="80.0"
-        className="w-full bg-zinc-900 text-emerald-400 text-2xl font-black p-3 rounded-lg outline-none focus:border-emerald-500 border border-transparent transition-all" 
-      />
-      <div className="h-2 bg-zinc-900 mt-3 rounded-full overflow-hidden">
-        <div className="bg-emerald-500 h-full transition-all duration-1000" style={{ width: `${percent}%` }} />
+    <div className="border border-[#eadfcd] bg-white/90 p-4 shadow-sm rounded-lg">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <div className="mb-1 flex items-center gap-2 text-sm font-bold text-slate-500">
+            <History size={16} />
+            Неделя {week.number}
+          </div>
+          <h3 className="text-2xl font-black text-slate-950">Итог дней {week.from}-{week.to}</h3>
+        </div>
+        <div className="text-right">
+          <div className="text-sm font-bold text-slate-500">XP</div>
+          <div className="text-3xl font-black text-slate-950">{week.xp}</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <WeekMetric label="Закрыто" value={`${week.closed.length}/7`} />
+        <WeekMetric label="Offer+" value={`${(week.offer / 60).toFixed(1)} ч`} />
+        <WeekMetric label="Средние ккал" value={week.avgCalories || '--'} />
+        <WeekMetric label="Вес" value={`${week.weightDelta > 0 ? '+' : ''}${week.weightDelta} кг`} />
       </div>
     </div>
   );
 }
 
-function StatBox({ icon, label, value }) {
+function WeekMetric({ label, value }) {
   return (
-    <div className="bg-zinc-950/40 border border-white/5 p-4 rounded-2xl flex flex-col items-center justify-center min-w-[80px]">
-      <div className="mb-1 opacity-50">{icon}</div>
-      <div className="text-xl font-black text-white italic leading-none">{value}</div>
-      <div className="text-[7px] uppercase text-zinc-600 font-mono tracking-[0.2em] mt-1">{label}</div>
+    <div className="border border-[#e8dfce] bg-[#fffaf1] p-3 rounded-lg">
+      <div className="text-xs font-bold text-slate-500">{label}</div>
+      <div className="mt-1 text-xl font-black text-slate-950">{value}</div>
     </div>
   );
 }
 
-function ErrorTrack({ label, count, color }) {
+function DiagnosisPanel({ items }) {
   return (
-    <div>
-      <div className="flex justify-between text-[10px] uppercase mb-1 font-bold">
-        <span>{label}</span>
-        <span className="text-red-500">{count} СБОЕВ</span>
+    <div className="border border-[#eadfcd] bg-white/90 p-4 shadow-sm rounded-lg">
+      <div className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-500">
+        <BarChart3 size={16} />
+        Почему результат такой
       </div>
-      <div className="h-1 bg-zinc-900 rounded-full overflow-hidden">
-        <div className={`h-full ${color} transition-all duration-1000`} style={{ width: `${Math.min(100, count * 10)}%` }} />
+      <div className="grid gap-2">
+        {items.map((item) => (
+          <div key={item} className="flex items-start gap-2 border border-[#e8dfce] bg-[#fffaf1] p-3 text-sm font-semibold leading-6 text-slate-700 rounded-lg">
+            <ChevronRight size={16} className="mt-1 shrink-0 text-[#7c9a78]" />
+            {item}
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-function TaskItem({ label, checked, onChange, disabled, isExtra = false, isRest = false }) {
+function getDiagnosis(stats, week) {
+  const items = [];
+  if (!stats.closedDays.length) {
+    return ['Пока нет закрытых дней. Первый ответ появится после фиксации базы.'];
+  }
+  if (stats.offerMinutes / Math.max(1, stats.closedDays.length) >= 75) {
+    items.push('Offer+ получает сильное время. Это главный двигатель оффера.');
+  } else {
+    items.push('Offer+ пока недобирает фокус. Увеличь среднее время до 60-90 минут в день.');
+  }
+  if (stats.avgCalories && stats.avgCalories <= CALORIE_TOP) {
+    items.push('Питание идёт в топ-режиме: средние калории держатся в зоне сушки.');
+  } else if (stats.avgCalories && stats.avgCalories <= CALORIE_LIMIT) {
+    items.push('Питание в рабочей зоне. Для ускорения снижения веса чаще попадай в 1800.');
+  } else {
+    items.push('Питание выше нужной рамки или данных мало. Это будет мешать видеть чистый рост.');
+  }
+  if (stats.weightDelta < -0.4) {
+    items.push('Вес снижается. Дистанция подтверждает, что система работает.');
+  } else if (stats.weightDelta > 0.4) {
+    items.push('Вес растёт. Смотри дни с калориями выше 2300 и количеством приёмов пищи.');
+  } else {
+    items.push('Вес пока держится. Нужны ещё отметки или мягкое усиление питания.');
+  }
+  if (week?.closed.length >= 5) {
+    items.push('Неделя достаточно плотная: уже можно анализировать паттерны, а не настроение.');
+  } else {
+    items.push('Неделе не хватает закрытых дней. Главный рычаг сейчас — регулярность отметок.');
+  }
+  return items;
+}
+
+function WeeksStrip({ weeks }) {
   return (
-    <button
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={`w-full flex items-center justify-between p-4 rounded-xl border-2 transition-all ${checked 
-          ? (isExtra ? 'bg-yellow-950/10 border-yellow-700/50 text-yellow-500' : isRest ? 'bg-cyan-950/20 border-cyan-800/50 text-cyan-500' : 'bg-emerald-950/20 border-emerald-800/50 text-emerald-500') 
-          : 'bg-black border-white/5 text-zinc-700 hover:border-white/10'} ${disabled ? 'cursor-default' : 'cursor-pointer'}`}
+    <div className="border border-[#eadfcd] bg-white/90 p-4 shadow-sm rounded-lg">
+      <div className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-500">
+        <CalendarDays size={16} />
+        17 недель
+      </div>
+      <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+        {weeks.map((week) => {
+          const intensity = clamp(week.xp / 900, 0, 1);
+          return (
+            <div
+              key={week.number}
+              className="min-h-[58px] border p-2 rounded-md"
+              style={{
+                backgroundColor: `rgba(124, 154, 120, ${0.08 + intensity * 0.28})`,
+                borderColor: week.closed.length ? '#cfe2c8' : '#eadfcd',
+              }}
+              title={`Неделя ${week.number}: ${week.xp} XP`}
+            >
+              <div className="text-xs font-bold text-slate-500">W{week.number}</div>
+              <div className="text-lg font-black text-slate-950">{week.closed.length}/7</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Checkpoints({ days, currentDayIndex }) {
+  return (
+    <section className="border border-[#eadfcd] bg-white/90 p-4 shadow-sm rounded-lg">
+      <div className="mb-4 flex items-center gap-2 text-sm font-bold text-slate-500">
+        <Trophy size={16} />
+        Промежуточные итоги
+      </div>
+      <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        {CHECKPOINT_DAYS.map((dayNumber) => {
+          const summary = checkpointSummary(days, dayNumber);
+          const reached = currentDayIndex + 1 >= dayNumber;
+          return (
+            <div key={dayNumber} className={`border p-4 rounded-lg ${reached ? 'border-[#cfe2c8] bg-[#f1f8ed]' : 'border-[#e8dfce] bg-[#fffaf1]'}`}>
+              <div className="mb-3 flex items-center justify-between">
+                <div className="text-sm font-bold text-slate-500">День {dayNumber}</div>
+                {reached ? <CheckCircle2 size={17} className="text-[#5f8f5d]" /> : <Lock size={16} className="text-slate-400" />}
+              </div>
+              <div className="text-2xl font-black text-slate-950">{summary.xp} XP</div>
+              <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                {summary.closed}/{summary.elapsed} дней · {(summary.offerMinutes / 60).toFixed(1)} ч Offer+
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ExportModal({ exportMode, setExportMode, data, copied, onCopy, onDownload, onClose }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 grid place-items-center bg-slate-900/35 p-4 backdrop-blur-sm"
     >
-      <span className="font-black text-xs uppercase italic tracking-widest">{label}</span>
-      {checked ? <CheckCircle2 size={18} /> : <div className="w-5 h-5 rounded-full border-2 border-current opacity-10" />}
-    </button>
+      <motion.section
+        initial={{ opacity: 0, y: 18, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 12, scale: 0.98 }}
+        className="w-full max-w-4xl border border-[#eadfcd] bg-[#fffdf8] p-4 shadow-2xl rounded-lg"
+      >
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="mb-1 flex items-center gap-2 text-sm font-bold text-slate-500">
+              <Download size={16} />
+              Экспорт для анализа
+            </div>
+            <h2 className="text-2xl font-black text-slate-950">Данные 120-дневного пути</h2>
+          </div>
+          <button onClick={onClose} className="self-start text-slate-500 transition hover:text-slate-950">
+            <XCircle size={26} />
+          </button>
+        </div>
+        <div className="mb-3 flex flex-wrap gap-2">
+          <button
+            onClick={() => setExportMode('markdown')}
+            className={`px-3 py-2 text-sm font-black rounded-md ${exportMode === 'markdown' ? 'bg-slate-950 text-white' : 'border border-[#e8dfce] bg-white text-slate-600'}`}
+          >
+            Markdown
+          </button>
+          <button
+            onClick={() => setExportMode('json')}
+            className={`px-3 py-2 text-sm font-black rounded-md ${exportMode === 'json' ? 'bg-slate-950 text-white' : 'border border-[#e8dfce] bg-white text-slate-600'}`}
+          >
+            JSON
+          </button>
+          <button onClick={onCopy} className="inline-flex items-center gap-2 border border-[#cfe2c8] bg-[#eef6e9] px-3 py-2 text-sm font-black text-[#365f36] rounded-md">
+            <Copy size={16} />
+            {copied ? 'Скопировано' : 'Скопировать'}
+          </button>
+          <button onClick={onDownload} className="inline-flex items-center gap-2 border border-[#c8e1ef] bg-[#eaf5fb] px-3 py-2 text-sm font-black text-[#255b7a] rounded-md">
+            <Download size={16} />
+            Скачать
+          </button>
+        </div>
+        <textarea
+          readOnly
+          value={data}
+          className="h-[58vh] w-full resize-none border border-[#e8dfce] bg-white p-4 font-mono text-sm leading-6 text-slate-800 outline-none rounded-md"
+        />
+      </motion.section>
+    </motion.div>
   );
 }
 
-function ConfettiOverlay() {
-  const particles = Array.from({ length: 50 });
+function ConfirmReset({ onCancel, onConfirm }) {
   return (
-    <div className="fixed inset-0 pointer-events-none z-[200] overflow-hidden">
-      {particles.map((_, i) => (
-        <motion.div
-          key={i}
-          initial={{ 
-            x: '50vw', y: '100vh', 
-            scale: 0, 
-            opacity: 1, 
-            backgroundColor: ['#10b981', '#fbbf24', '#06b6d4'][i % 3] 
-          }}
-          animate={{
-            x: `${Math.random() * 100}vw`,
-            y: `${Math.random() * 100}vh`,
-            scale: Math.random() * 1.5 + 0.5,
-            opacity: 0,
-            rotate: Math.random() * 360
-          }}
-          transition={{ duration: 2 + Math.random(), ease: "easeOut" }}
-          className="absolute w-3 h-3 rounded-sm"
-        />
-      ))}
-    </div>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 grid place-items-center bg-slate-900/35 p-4 backdrop-blur-sm"
+    >
+      <motion.section
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 12 }}
+        className="w-full max-w-md border border-[#eadfcd] bg-[#fffdf8] p-5 shadow-2xl rounded-lg"
+      >
+        <h2 className="text-2xl font-black text-slate-950">Начать заново?</h2>
+        <p className="mt-3 leading-7 text-slate-600">
+          Текущий локальный прогресс будет очищен, а новый старт снова привяжется к сегодняшней дате.
+        </p>
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <button onClick={onCancel} className="border border-[#e8dfce] bg-white px-4 py-3 font-black text-slate-700 rounded-md">
+            Оставить
+          </button>
+          <button onClick={onConfirm} className="bg-slate-950 px-4 py-3 font-black text-white rounded-md">
+            Новый старт
+          </button>
+        </div>
+      </motion.section>
+    </motion.div>
   );
 }
+
+function TrendingDownIcon(props) {
+  return <LineChart {...props} />;
+}
+
+function TrendingUpIcon(props) {
+  return <Activity {...props} />;
+}
+
+export default App;
