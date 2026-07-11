@@ -58,7 +58,7 @@ const TIERS = {
     bg: '#eaf5fb',
     border: '#c8e1ef',
     text: '#255b7a',
-    description: 'День заметно двинул Offer+ и тело.',
+    description: 'День заметно двинул форму, 1С и рынок.',
   },
   breakthrough: {
     id: 'breakthrough',
@@ -69,20 +69,23 @@ const TIERS = {
     bg: '#fff3df',
     border: '#f1d2a7',
     text: '#81501f',
-    description: 'Топовый день. Есть фокус, артефакт и чистая дисциплина.',
+    description: 'Топовый день. Есть фокус, доказательства и чистая дисциплина.',
   },
 };
 
-const ARTIFACT_TYPES = [
-  'Отклик',
+const PROOF_TYPES = [
+  '1С обучение',
+  'Практика 1С',
+  'Конспект',
+  'Сертификат',
+  'Проект',
+  'Задача',
+  'Разбор вакансий',
   'Резюме',
-  'Портфолио',
-  'Коммит',
-  'Кейс',
+  'Отклик',
   'Собеседование',
   'Тестовое',
-  'Разбор вакансий',
-  'Нетворкинг',
+  'Портфолио',
   'Другое',
 ];
 
@@ -90,7 +93,7 @@ const SIGNALS = [
   { minXp: 1200, text: 'Собран первый устойчивый контур. Движение видно.' },
   { minXp: 2800, text: 'Появился ритм. Теперь система начинает работать на тебя.' },
   { minXp: 5200, text: 'Ты уже не вспоминаешь цель. Ты в ней живёшь.' },
-  { minXp: 9000, text: 'Offer+ стал не событием, а следствием твоей траектории.' },
+  { minXp: 9000, text: 'Рынок стал не страхом, а следствием твоей траектории.' },
 ];
 
 const todayKey = () => toDateKey(new Date());
@@ -137,6 +140,7 @@ function createDay(day, startDate) {
     offerMinutes: '',
     offerAction: '',
     artifactType: '',
+    proofs: [],
     calories: '',
     meals: '',
     weight: '',
@@ -169,6 +173,11 @@ function loadState() {
         ...parsed.days[index],
         day: index + 1,
         date: addDays(parsed.startDate, index),
+        proofs: Array.isArray(parsed.days[index]?.proofs)
+          ? parsed.days[index].proofs
+          : parsed.days[index]?.artifactType
+            ? [parsed.days[index].artifactType]
+            : [],
       })),
     };
   } catch {
@@ -188,25 +197,26 @@ function evaluateDay(day) {
   const calories = num(day.calories);
   const meals = num(day.meals);
   const weight = num(day.weight);
-  const hasNs = day.nsDone && nsMinutes >= 10;
+  const hasNs = nsMinutes >= 10;
   const hasOffer = offerMinutes >= 25 && day.offerAction.trim().length >= 5;
   const hasNutrition = calories > 0 && calories <= CALORIE_LIMIT && meals >= 1 && meals <= 3;
   const hasWeight = weight > 0;
   const hasSummary = day.summary.trim().length >= 5;
-  const hasArtifact = Boolean(day.artifactType);
+  const proofs = Array.isArray(day.proofs) ? day.proofs : [];
+  const hasProof = proofs.length > 0;
 
   const score = [
     hasNs ? 22 : nsMinutes > 0 ? 12 : 0,
     hasOffer ? 24 : offerMinutes > 0 || day.offerAction.trim() ? 12 : 0,
     hasNutrition ? 20 : calories > 0 || meals > 0 ? 8 : 0,
     hasWeight ? 12 : 0,
-    hasArtifact ? 12 : 0,
+    hasProof ? 12 : 0,
     hasSummary ? 10 : 0,
   ].reduce((sum, value) => sum + value, 0);
 
   const blockers = [];
-  if (!hasNs) blockers.push('НС: отметь выполнение и минимум 10 минут');
-  if (!hasOffer) blockers.push('Offer+: минимум 25 минут и конкретное действие');
+  if (!hasNs) blockers.push('Опора: минимум 10 минут ресурса или восстановления');
+  if (!hasOffer) blockers.push('1С/рынок: минимум 25 минут и конкретное действие');
   if (!hasNutrition) blockers.push('Питание: до 2300 ккал и 1-3 приёма пищи');
   if (!hasWeight) blockers.push('Вес: внеси текущий вес');
 
@@ -227,10 +237,10 @@ function evaluateDay(day) {
   }
 
   let tier = TIERS.base;
-  if (offerMinutes >= 60 && hasSummary && (hasArtifact || day.offerAction.trim().length >= 24)) {
+  if (offerMinutes >= 60 && hasSummary && (hasProof || day.offerAction.trim().length >= 24)) {
     tier = TIERS.growth;
   }
-  if (offerMinutes >= 120 && calories <= CALORIE_TOP && nsMinutes >= 20 && hasArtifact && hasSummary) {
+  if (offerMinutes >= 120 && calories <= CALORIE_TOP && nsMinutes >= 20 && hasProof && hasSummary) {
     tier = TIERS.breakthrough;
   }
 
@@ -261,7 +271,7 @@ function calculateStats(days, currentDayIndex) {
   const offerMinutes = closedDays.reduce((sum, day) => sum + num(day.offerMinutes), 0);
   const nsMinutes = closedDays.reduce((sum, day) => sum + num(day.nsMinutes), 0);
   const focusMinutes = offerMinutes + nsMinutes;
-  const artifacts = closedDays.filter((day) => day.artifactType).length;
+  const proofs = closedDays.reduce((sum, day) => sum + (Array.isArray(day.proofs) ? day.proofs.length : 0), 0);
   const foodOverLimit = closedDays.filter((day) => num(day.calories) > CALORIE_LIMIT).length;
   const emptyDays = elapsedDays.filter((day) => !day.result).length;
   const completionRate = elapsedDays.length ? Math.round((closedDays.length / elapsedDays.length) * 100) : 0;
@@ -292,7 +302,7 @@ function calculateStats(days, currentDayIndex) {
     offerMinutes,
     nsMinutes,
     focusMinutes,
-    artifacts,
+    proofs,
     foodOverLimit,
     emptyDays,
     completionRate,
@@ -347,27 +357,27 @@ function buildExport(state, stats, weeks) {
     `Дней прошло: ${stats.elapsedDays.length}/${TOTAL_DAYS}`,
     `Закрыто дней: ${stats.closedDays.length}`,
     `XP: ${stats.xp}, уровень: ${stats.level}`,
-    `Offer+ часы: ${(stats.offerMinutes / 60).toFixed(1)}`,
-    `НС часы: ${(stats.nsMinutes / 60).toFixed(1)}`,
+    `1С/рынок часы: ${(stats.offerMinutes / 60).toFixed(1)}`,
+    `Ресурс/опора часы: ${(stats.nsMinutes / 60).toFixed(1)}`,
     `Средние калории: ${stats.avgCalories || 'нет данных'}`,
     `Вес: ${stats.firstWeight || 'нет'} -> ${stats.lastWeight || 'нет'} кг, дельта ${stats.weightDelta} кг`,
     '',
     '## Вопрос к нейросети',
-    'Проанализируй мой 120-дневный путь. Найди паттерны роста, причины просадок, связь Offer+ действий с результатом, связь питания/веса с энергией. Объясни, почему я приближаюсь к офферу или почему не добираю. Дай 3 главных рычага на следующую неделю.',
+    'Проанализируй мой 120-дневный путь. Найди паттерны роста, причины просадок, связь 1С/рынок действий с результатом, связь питания/веса с энергией. Объясни, почему я приближаюсь к офферу, идеальной форме и сильному рыночному состоянию или почему не добираю. Дай 3 главных рычага на следующую неделю.',
     '',
     '## Недельные итоги',
     ...weeks.filter((week) => week.closed.length).map((week) => (
-      `- Неделя ${week.number}: закрыто ${week.closed.length}/7, XP ${week.xp}, Offer+ ${(week.offer / 60).toFixed(1)} ч, НС ${(week.ns / 60).toFixed(1)} ч, средние ккал ${week.avgCalories || '-'}, вес ${week.weightDelta > 0 ? '+' : ''}${week.weightDelta} кг, топ-дней ${week.breakthrough}.`
+      `- Неделя ${week.number}: закрыто ${week.closed.length}/7, XP ${week.xp}, 1С/рынок ${(week.offer / 60).toFixed(1)} ч, ресурс ${(week.ns / 60).toFixed(1)} ч, средние ккал ${week.avgCalories || '-'}, вес ${week.weightDelta > 0 ? '+' : ''}${week.weightDelta} кг, топ-дней ${week.breakthrough}.`
     )),
     '',
     '## Чекпоинты',
     ...checkpoints.map((item) => (
-      `- День ${item.day}: закрыто ${item.closed}/${item.elapsed}, XP ${item.xp}, Offer+ ${(item.offerMinutes / 60).toFixed(1)} ч, средние ккал ${item.avgCalories || '-'}, вес ${item.weightDelta > 0 ? '+' : ''}${item.weightDelta} кг.`
+      `- День ${item.day}: закрыто ${item.closed}/${item.elapsed}, XP ${item.xp}, 1С/рынок ${(item.offerMinutes / 60).toFixed(1)} ч, средние ккал ${item.avgCalories || '-'}, вес ${item.weightDelta > 0 ? '+' : ''}${item.weightDelta} кг.`
     )),
     '',
     '## Дни',
     ...closed.map((day) => (
-      `- День ${day.day} (${day.date}): ${TIERS[day.result]?.title || day.result}, XP ${day.xp}, НС ${day.nsMinutes} мин, Offer+ ${day.offerMinutes} мин, ккал ${day.calories}, приёмов ${day.meals}, вес ${day.weight} кг, артефакт: ${day.artifactType || '-'}, действие: ${day.offerAction}, итог: ${day.summary || '-'}`
+      `- День ${day.day} (${day.date}): ${TIERS[day.result]?.title || day.result}, XP ${day.xp}, ресурс ${day.nsMinutes} мин, 1С/рынок ${day.offerMinutes} мин, ккал ${day.calories}, приёмов ${day.meals}, вес ${day.weight} кг, доказательства: ${(day.proofs || []).join(', ') || '-'}, действие: ${day.offerAction}, итог: ${day.summary || '-'}`
     )),
   ].join('\n');
 
@@ -572,11 +582,11 @@ function StartScreen({ onStart }) {
               120 дней роста
             </div>
             <h1 className="max-w-3xl text-4xl font-black leading-tight text-slate-950 sm:text-5xl">
-              Offer+, тело и сознание в одной живой панели
+              Форма, 1С и рынок в одной живой панели
             </h1>
             <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-600">
               Старт фиксируется сегодняшней датой. Дальше приложение считает 120 дней,
-              показывает рост по времени, весу, питанию, артефактам и результатам.
+              показывает рост по времени, весу, питанию, доказательствам и результатам.
             </p>
             <button
               onClick={onStart}
@@ -588,10 +598,10 @@ function StartScreen({ onStart }) {
           </div>
 
           <div className="grid gap-3">
-            <StartMetric icon={<Target size={20} />} title="Offer+" text="Действия, время, артефакты, итоговая траектория." />
+            <StartMetric icon={<Target size={20} />} title="1С и рынок" text="Учёба, практика, проект, вакансии, резюме, отклики." />
             <StartMetric icon={<Utensils size={20} />} title="Питание" text="1800 как топ, 2300 как верхняя граница." />
             <StartMetric icon={<Scale size={20} />} title="Вес" text="График покажет, куда реально идёт тело." />
-            <StartMetric icon={<BrainCircuit size={20} />} title="НС" text="Ежедневная отметка и минуты практики." />
+            <StartMetric icon={<BrainCircuit size={20} />} title="Опора" text="Ресурс, восстановление и внутренняя устойчивость." />
           </div>
         </motion.section>
       </div>
@@ -623,13 +633,13 @@ function Header({ stats, currentDayIndex, onExport, onReset }) {
             Уровень {stats.level}
           </div>
           <h1 className="text-3xl font-black leading-tight text-slate-950 sm:text-4xl">
-            Панель роста Offer+
+            120 дней: форма, 1С, рынок
           </h1>
         </div>
 
         <div className="grid grid-cols-2 gap-2 sm:flex">
           <HeaderPill icon={<Flame size={16} />} label="XP" value={stats.xp} />
-          <HeaderPill icon={<Target size={16} />} label="Offer+" value={`${(stats.offerMinutes / 60).toFixed(1)} ч`} />
+          <HeaderPill icon={<Target size={16} />} label="1С/рынок" value={`${(stats.offerMinutes / 60).toFixed(1)} ч`} />
           <HeaderPill icon={<Scale size={16} />} label="Вес" value={stats.lastWeight ? `${stats.lastWeight} кг` : '--'} />
           <button
             onClick={onExport}
@@ -684,54 +694,42 @@ function TodayPanel({ day, evaluation, onChange, onSave, activeDayIndex, current
 
       <div className="mb-5 grid gap-2 sm:grid-cols-3">
         <ScoreChip label="Калории" value={day.calories ? `${day.calories}` : '--'} tone={num(day.calories) <= CALORIE_TOP && num(day.calories) > 0 ? 'top' : num(day.calories) <= CALORIE_LIMIT && num(day.calories) > 0 ? 'ok' : 'draft'} />
-        <ScoreChip label="Offer+" value={day.offerMinutes ? `${day.offerMinutes} мин` : '--'} tone={num(day.offerMinutes) >= 120 ? 'top' : num(day.offerMinutes) >= 60 ? 'ok' : 'draft'} />
+        <ScoreChip label="1С/рынок" value={day.offerMinutes ? `${day.offerMinutes} мин` : '--'} tone={num(day.offerMinutes) >= 120 ? 'top' : num(day.offerMinutes) >= 60 ? 'ok' : 'draft'} />
         <ScoreChip label="Score" value={`${evaluation.score}%`} tone={evaluation.id === 'breakthrough' ? 'top' : evaluation.id !== 'draft' ? 'ok' : 'draft'} />
       </div>
 
       <div className="grid gap-4">
         <div className="grid gap-3 sm:grid-cols-2">
-          <ToggleField
-            icon={<BrainCircuit size={18} />}
-            label="НС выполнено"
-            checked={day.nsDone}
-            disabled={!editable}
-            onChange={(checked) => onChange({ ...day, nsDone: checked })}
-          />
           <NumberField
-            icon={<Timer size={18} />}
-            label="НС, минуты"
+            icon={<BrainCircuit size={18} />}
+            label="Опора / ресурс, минуты"
             value={day.nsMinutes}
             disabled={!editable}
             min="0"
-            onChange={(value) => onChange({ ...day, nsMinutes: value })}
+            onChange={(value) => onChange({ ...day, nsMinutes: value, nsDone: num(value) >= 10 })}
           />
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
           <NumberField
             icon={<Target size={18} />}
-            label="Offer+, минуты"
+            label="1С / рынок, минуты"
             value={day.offerMinutes}
             disabled={!editable}
             min="0"
             onChange={(value) => onChange({ ...day, offerMinutes: value })}
           />
-          <SelectField
-            icon={<FileText size={18} />}
-            label="Артефакт"
-            value={day.artifactType}
-            disabled={!editable}
-            onChange={(value) => onChange({ ...day, artifactType: value })}
-            options={ARTIFACT_TYPES}
-          />
         </div>
+
+        <ProofPicker
+          value={day.proofs || []}
+          disabled={!editable}
+          onChange={(proofs) => onChange({ ...day, proofs, artifactType: proofs[0] || '' })}
+        />
 
         <TextField
           icon={<Zap size={18} />}
-          label="Что сделал к Offer+"
+          label="Что сегодня приблизило к форме, 1С или рынку?"
           value={day.offerAction}
           disabled={!editable}
-          placeholder="Например: обновил блок резюме, отправил 2 отклика, разобрал вакансию"
+          placeholder="Например: 1С Skillbox, практика, сертификат, проект, разбор вакансий, резюме"
           onChange={(value) => onChange({ ...day, offerAction: value })}
         />
 
@@ -765,10 +763,10 @@ function TodayPanel({ day, evaluation, onChange, onSave, activeDayIndex, current
 
         <TextField
           icon={<Heart size={18} />}
-          label="Итог одной строкой"
+          label="Что стало сильнее во мне или системе?"
           value={day.summary}
           disabled={!editable}
-          placeholder="Что сегодня стало сильнее?"
+          placeholder="Одна строка результата без лишней рефлексии"
           onChange={(value) => onChange({ ...day, summary: value })}
         />
       </div>
@@ -814,24 +812,44 @@ function TodayPanel({ day, evaluation, onChange, onSave, activeDayIndex, current
   );
 }
 
-function ToggleField({ icon, label, checked, onChange, disabled }) {
+function ProofPicker({ value, onChange, disabled }) {
+  const selected = Array.isArray(value) ? value : [];
+  const toggleProof = (proof) => {
+    if (selected.includes(proof)) {
+      onChange(selected.filter((item) => item !== proof));
+      return;
+    }
+    onChange([...selected, proof]);
+  };
+
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={`flex min-h-[72px] items-center justify-between border p-3 text-left transition rounded-lg ${
-        checked
-          ? 'border-[#cfe2c8] bg-[#eef6e9] text-[#365f36]'
-          : 'border-[#e8dfce] bg-white text-slate-600 hover:bg-[#fffaf1]'
-      }`}
-    >
-      <span className="flex items-center gap-3 font-bold">
-        {icon}
-        {label}
+    <div className="border border-[#e8dfce] bg-white p-3 rounded-lg">
+      <span className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-600">
+        <FileText size={18} />
+        Доказательства дня
       </span>
-      {checked ? <CheckCircle2 size={20} /> : <span className="h-5 w-5 border border-slate-300 rounded-md" />}
-    </button>
+      <div className="flex flex-wrap gap-2">
+        {PROOF_TYPES.map((proof) => {
+          const isSelected = selected.includes(proof);
+          return (
+            <button
+              key={proof}
+              type="button"
+              disabled={disabled}
+              onClick={() => toggleProof(proof)}
+              className={`inline-flex items-center gap-2 border px-3 py-2 text-sm font-bold transition rounded-md ${
+                isSelected
+                  ? 'border-[#cfe2c8] bg-[#eef6e9] text-[#365f36]'
+                  : 'border-[#e8dfce] bg-[#fffdf8] text-slate-600 hover:bg-[#fffaf1]'
+              }`}
+            >
+              {isSelected ? <CheckCircle2 size={15} /> : <span className="h-[15px] w-[15px] border border-slate-300 rounded-sm" />}
+              {proof}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -851,28 +869,6 @@ function NumberField({ icon, label, value, onChange, disabled, min, step = '1' }
         onChange={(event) => onChange(event.target.value)}
         className="w-full border border-[#e6dcc8] bg-[#fffdf8] px-3 py-2 text-lg font-black text-slate-950 outline-none transition focus:border-[#8fb989] disabled:text-slate-400 rounded-md"
       />
-    </label>
-  );
-}
-
-function SelectField({ icon, label, value, onChange, disabled, options }) {
-  return (
-    <label className="block border border-[#e8dfce] bg-white p-3 rounded-lg">
-      <span className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-600">
-        {icon}
-        {label}
-      </span>
-      <select
-        value={value}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full border border-[#e6dcc8] bg-[#fffdf8] px-3 py-2 text-base font-bold text-slate-950 outline-none transition focus:border-[#8fb989] disabled:text-slate-400 rounded-md"
-      >
-        <option value="">Без артефакта</option>
-        {options.map((option) => (
-          <option key={option} value={option}>{option}</option>
-        ))}
-      </select>
     </label>
   );
 }
@@ -971,7 +967,7 @@ function PathPanel({ days, activeDayIndex, currentDayIndex, onSelect, stats, sig
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
         <PathInsight icon={<Flame size={18} />} label="Серия" value={`${stats.streak} дн`} />
-        <PathInsight icon={<Target size={18} />} label="Offer+ артефакты" value={stats.artifacts} />
+        <PathInsight icon={<Target size={18} />} label="Доказательства" value={stats.proofs} />
         <PathInsight icon={<CalendarDays size={18} />} label="Закрытие пути" value={`${stats.completionRate}%`} />
       </div>
 
@@ -1051,15 +1047,15 @@ function Dashboard({ days, stats, currentWeek, weeks }) {
           icon={<Timer size={18} />}
           title="Время"
           subtitle={`фокус ${(stats.focusMinutes / 60).toFixed(1)} ч`}
-          aside={<span className="text-sm font-black text-[#255b7a]">НС + Offer+</span>}
+          aside={<span className="text-sm font-black text-[#255b7a]">опора + 1С</span>}
         >
           <TimeBars days={days} />
         </ChartCard>
 
         <ChartCard
           icon={<Target size={18} />}
-          title="Offer+"
-          subtitle={`${stats.artifacts} артефактов`}
+          title="1С и рынок"
+          subtitle={`${stats.proofs} доказательств`}
           aside={<span className="text-sm font-black text-[#365f36]">{(stats.offerMinutes / 60).toFixed(1)} ч</span>}
         >
           <OfferProgress days={days} />
@@ -1178,12 +1174,12 @@ function TimeBars({ days }) {
               <div
                 className="bg-[#4f8fb9] transition-all"
                 style={{ height: `${(offer / maxValue) * 100}%` }}
-                title={`Offer+ ${offer} мин`}
+                title={`1С/рынок ${offer} мин`}
               />
               <div
                 className="bg-[#7c9a78] transition-all"
                 style={{ height: `${(ns / maxValue) * 100}%` }}
-                title={`НС ${ns} мин`}
+                title={`Опора ${ns} мин`}
               />
             </div>
             <div className="text-center text-[10px] font-bold text-slate-500">{day.day}</div>
@@ -1197,7 +1193,7 @@ function TimeBars({ days }) {
 
 function OfferProgress({ days }) {
   const closed = days.filter((day) => day.result);
-  if (!closed.length) return <EmptyChart text="Offer+ заполнится после закрытия дня" />;
+  if (!closed.length) return <EmptyChart text="Траектория заполнится после закрытия дня" />;
   const cumulative = [];
   closed.reduce((sum, day) => {
     const next = sum + num(day.offerMinutes);
@@ -1226,7 +1222,7 @@ function WeeklyPanel({ week }) {
       </div>
       <div className="grid grid-cols-2 gap-2">
         <WeekMetric label="Закрыто" value={`${week.closed.length}/7`} />
-        <WeekMetric label="Offer+" value={`${(week.offer / 60).toFixed(1)} ч`} />
+        <WeekMetric label="1С/рынок" value={`${(week.offer / 60).toFixed(1)} ч`} />
         <WeekMetric label="Средние ккал" value={week.avgCalories || '--'} />
         <WeekMetric label="Вес" value={`${week.weightDelta > 0 ? '+' : ''}${week.weightDelta} кг`} />
       </div>
@@ -1268,9 +1264,9 @@ function getDiagnosis(stats, week) {
     return ['Пока нет закрытых дней. Первый ответ появится после фиксации базы.'];
   }
   if (stats.offerMinutes / Math.max(1, stats.closedDays.length) >= 75) {
-    items.push('Offer+ получает сильное время. Это главный двигатель оффера.');
+    items.push('1С и рынок получают сильное время. Это главный двигатель оффера.');
   } else {
-    items.push('Offer+ пока недобирает фокус. Увеличь среднее время до 60-90 минут в день.');
+    items.push('1С/рынок пока недобирает фокус. Увеличь среднее время до 60-90 минут в день.');
   }
   if (stats.avgCalories && stats.avgCalories <= CALORIE_TOP) {
     items.push('Питание идёт в топ-режиме: средние калории держатся в зоне сушки.');
@@ -1343,7 +1339,7 @@ function Checkpoints({ days, currentDayIndex }) {
               </div>
               <div className="text-2xl font-black text-slate-950">{summary.xp} XP</div>
               <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                {summary.closed}/{summary.elapsed} дней · {(summary.offerMinutes / 60).toFixed(1)} ч Offer+
+                {summary.closed}/{summary.elapsed} дней · {(summary.offerMinutes / 60).toFixed(1)} ч 1С/рынок
               </div>
             </div>
           );
