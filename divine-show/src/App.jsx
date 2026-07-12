@@ -42,38 +42,60 @@ const WEEK_COUNT = Math.ceil(TOTAL_DAYS / 7);
 const CHECKPOINT_DAYS = [7, 14, 30, 60, 90, 120];
 
 const TIERS = {
+  bad: {
+    id: 'bad',
+    title: 'Плохой день',
+    short: 'Плохо',
+    xp: 10,
+    color: '#c65d5d',
+    bg: '#fff1f1',
+    border: '#efc6c6',
+    text: '#8d3333',
+    description: 'День зафиксирован честно, но он тянет результат вниз. Это не приговор, это сигнал.',
+  },
+  weak: {
+    id: 'weak',
+    title: 'Слабый день',
+    short: 'Слабо',
+    xp: 25,
+    color: '#d18b47',
+    bg: '#fff6e8',
+    border: '#efd4aa',
+    text: '#81501f',
+    description: 'Минимальный факт есть, но фокус, питание или доказательства не дотянули до рабочего уровня.',
+  },
   base: {
     id: 'base',
-    title: 'Поддержание',
-    short: 'База',
+    title: 'Обычный день',
+    short: 'Обычно',
     xp: 50,
-    color: '#7c9a78',
+    color: '#6f8f6c',
     bg: '#eef6e9',
     border: '#cfe2c8',
     text: '#365f36',
-    description: 'День закрыт. Система не развалилась, путь живой.',
+    description: 'День закрыт нормально: система держится, форма и 1С не выпали.',
   },
   growth: {
     id: 'growth',
-    title: 'Рост',
-    short: 'Рост',
+    title: 'Сильный день',
+    short: 'Сильно',
     xp: 110,
     color: '#4f8fb9',
     bg: '#eaf5fb',
     border: '#c8e1ef',
     text: '#255b7a',
-    description: 'Есть заметный вклад в форму, 1С или рынок.',
+    description: 'Есть заметный вклад в форму, 1С или рынок. Такой день двигает траекторию.',
   },
   breakthrough: {
     id: 'breakthrough',
-    title: 'Прорыв',
-    short: 'Топ',
+    title: 'Идеальный день',
+    short: 'Идеал',
     xp: 190,
-    color: '#d18b47',
-    bg: '#fff3df',
-    border: '#f1d2a7',
-    text: '#81501f',
-    description: 'Топовый день: фокус, питание, вес и доказательства сошлись.',
+    color: '#18a957',
+    bg: '#e9fbef',
+    border: '#9ee8b7',
+    text: '#0f7138',
+    description: 'Идеальный день: 1С/рынок, питание, вес и доказательства сошлись в один вектор.',
   },
 };
 
@@ -165,6 +187,22 @@ function createWeeklyReview(index) {
   };
 }
 
+function isWeeklyReviewComplete(review) {
+  return Boolean(
+    review?.worked?.trim()
+    && review?.blocked?.trim()
+    && review?.nextLever?.trim()
+  );
+}
+
+function getDueReviewIndex(weeklyReviews, currentDayNumber) {
+  const completedWeeks = Math.floor(currentDayNumber / 7);
+  for (let index = 0; index < completedWeeks; index += 1) {
+    if (!isWeeklyReviewComplete(weeklyReviews[index])) return index;
+  }
+  return -1;
+}
+
 function createInitialState(startDate = todayKey()) {
   return {
     version: 2,
@@ -253,26 +291,31 @@ function evaluateDay(day) {
   const calories = num(day.calories);
   const meals = num(day.meals);
   const weight = num(day.weight);
+  const hasWorkFields = workMinutes > 0 && day.actionText.trim().length >= 5;
+  const hasNutritionFields = calories > 0 && meals > 0;
   const hasWork = workMinutes >= 25 && day.actionText.trim().length >= 5;
   const hasNutrition = calories > 0 && calories <= CALORIE_LIMIT && meals >= 1 && meals <= 3;
   const hasWeight = weight > 0;
   const hasProof = Array.isArray(day.proofs) && day.proofs.length > 0;
   const hasSummary = day.summary.trim().length >= 5;
+  const canFix = hasWorkFields && hasNutritionFields && hasWeight && hasProof && hasSummary;
 
   const score = [
-    hasWork ? 30 : workMinutes > 0 || day.actionText.trim() ? 14 : 0,
-    hasNutrition ? 25 : calories > 0 || meals > 0 ? 8 : 0,
+    hasWork ? 30 : hasWorkFields ? 14 : 0,
+    hasNutrition ? 25 : hasNutritionFields ? 8 : 0,
     hasWeight ? 15 : 0,
     hasProof ? 15 : 0,
     hasSummary ? 15 : 0,
   ].reduce((sum, value) => sum + value, 0);
 
   const blockers = [];
-  if (!hasWork) blockers.push('1С/рынок: минимум 25 минут и конкретное действие');
-  if (!hasNutrition) blockers.push('Питание: до 2300 ккал и 1-3 приёма пищи');
+  if (!hasWorkFields) blockers.push('1С/рынок: внеси минуты и конкретное действие');
+  if (!hasProof) blockers.push('Доказательства дня: выбери хотя бы один пункт');
+  if (!hasNutritionFields) blockers.push('Питание: внеси калории и количество приёмов пищи');
   if (!hasWeight) blockers.push('Вес: внеси текущий вес');
+  if (!hasSummary) blockers.push('Итог дня: одна короткая строка результата');
 
-  if (!(hasWork && hasNutrition && hasWeight)) {
+  if (!canFix) {
     return {
       id: 'draft',
       title: 'Черновик',
@@ -283,20 +326,27 @@ function evaluateDay(day) {
       border: '#dbe3eb',
       text: '#475569',
       score,
+      canFix,
       blockers,
-      description: 'День ещё не даёт чистого результата.',
+      description: 'День ещё нельзя фиксировать: сначала заполни обязательные поля.',
     };
   }
 
-  let tier = TIERS.base;
-  if (workMinutes >= 60 && hasSummary && (hasProof || day.actionText.trim().length >= 24)) {
+  let tier = TIERS.bad;
+  if (hasWork || hasNutrition) {
+    tier = TIERS.weak;
+  }
+  if (hasWork && hasNutrition) {
+    tier = TIERS.base;
+  }
+  if (workMinutes >= 75 && hasNutrition && day.actionText.trim().length >= 18) {
     tier = TIERS.growth;
   }
   if (workMinutes >= 120 && calories <= CALORIE_TOP && hasProof && hasSummary) {
     tier = TIERS.breakthrough;
   }
 
-  return { ...tier, score, blockers: [], description: tier.description };
+  return { ...tier, score, canFix, blockers: [], description: tier.description };
 }
 
 function calculateStats(days, currentDayIndex) {
@@ -375,6 +425,8 @@ function getWeeks(days) {
       breakthrough: closed.filter((day) => day.result === 'breakthrough').length,
       growth: closed.filter((day) => day.result === 'growth').length,
       base: closed.filter((day) => day.result === 'base').length,
+      weak: closed.filter((day) => day.result === 'weak').length,
+      bad: closed.filter((day) => day.result === 'bad').length,
     };
   });
 }
@@ -423,7 +475,7 @@ function buildExport(state, stats, weeks) {
     '',
     '## Недельные метрики',
     ...weeks.filter((week) => week.closed.length).map((week) => (
-      `- Неделя ${week.number}: закрыто ${week.closed.length}/7, XP ${week.xp}, 1С/рынок ${(week.work / 60).toFixed(1)} ч, средние ккал ${week.avgCalories || '-'}, дней <=1800: ${week.topCalories}, вес ${week.weightDelta > 0 ? '+' : ''}${week.weightDelta} кг, доказательств ${week.proofCount}, топ-дней ${week.breakthrough}.`
+      `- Неделя ${week.number}: закрыто ${week.closed.length}/7, XP ${week.xp}, 1С/рынок ${(week.work / 60).toFixed(1)} ч, средние ккал ${week.avgCalories || '-'}, дней <=1800: ${week.topCalories}, вес ${week.weightDelta > 0 ? '+' : ''}${week.weightDelta} кг, доказательств ${week.proofCount}, идеальных ${week.breakthrough}, сильных ${week.growth}, обычных ${week.base}, слабых ${week.weak}, плохих ${week.bad}.`
     )),
     '',
     '## Чекпоинты',
@@ -492,6 +544,7 @@ function App() {
   const [exportMode, setExportMode] = useState('markdown');
   const [copied, setCopied] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [activeView, setActiveView] = useState('main');
   const lastCloudJsonRef = useRef('');
 
   useEffect(() => {
@@ -510,18 +563,20 @@ function App() {
     const cached = loadCachedState(user.uid);
     const documentRef = doc(db, 'users', user.uid, 'trackers', 'growth120');
     return onSnapshot(documentRef, (snapshot) => {
+      const nextState = snapshot.exists()
+        ? normalizeState(snapshot.data().state)
+        : cached;
       if (snapshot.exists()) {
-        const cloudState = normalizeState(snapshot.data().state);
-        lastCloudJsonRef.current = JSON.stringify(cloudState);
-        setState(cloudState);
-      } else {
-        setState(cached);
+        lastCloudJsonRef.current = JSON.stringify(nextState);
       }
+      setState(nextState);
+      if (nextState?.startDate) setActiveDayIndex(getCurrentDayIndex(nextState.startDate));
       setCloudReady(true);
       setSyncState('synced');
     }, (error) => {
       setAuthError(error.message);
       setState(cached);
+      if (cached?.startDate) setActiveDayIndex(getCurrentDayIndex(cached.startDate));
       setCloudReady(true);
       setSyncState('offline');
     });
@@ -566,24 +621,50 @@ function App() {
     if (auth) await signOut(auth);
   };
 
+  const startJourney = () => {
+    const nextState = createInitialState();
+    setState(nextState);
+    setActiveDayIndex(getCurrentDayIndex(nextState.startDate));
+  };
+
   if (authLoading) return <LoadingScreen text="Проверяю аккаунт..." />;
   if (!user) return <LoginScreen error={authError} onSignIn={signIn} configured={firebaseConfigured} />;
   if (!cloudReady) return <LoadingScreen text="Загружаю твою историю..." />;
-  if (!state) return <StartScreen user={user} onStart={() => setState(createInitialState())} onLogOut={logOut} />;
+  if (!state) return <StartScreen user={user} onStart={startJourney} onLogOut={logOut} />;
 
   const currentDayIndex = getCurrentDayIndex(state.startDate);
+  const currentDayNumber = currentDayIndex + 1;
   const safeActiveDayIndex = clamp(activeDayIndex, 0, currentDayIndex);
   const activeDay = state.days[safeActiveDayIndex];
-  const activeEvaluation = evaluateDay(activeDay);
+  const calculatedActiveEvaluation = evaluateDay(activeDay);
+  const activeEvaluation = activeDay.result && TIERS[activeDay.result]
+    ? {
+      ...TIERS[activeDay.result],
+      xp: activeDay.xp || TIERS[activeDay.result].xp,
+      score: calculatedActiveEvaluation.score,
+      canFix: true,
+      blockers: [],
+      description: TIERS[activeDay.result].description,
+    }
+    : calculatedActiveEvaluation;
   const stats = calculateStats(state.days, currentDayIndex);
   const weeks = getWeeks(state.days);
   const currentWeekIndex = Math.floor(currentDayIndex / 7);
   const currentWeek = weeks[currentWeekIndex] || weeks[0];
-  const currentReview = state.weeklyReviews[currentWeekIndex] || createWeeklyReview(currentWeekIndex);
+  const dueReviewIndex = getDueReviewIndex(state.weeklyReviews, currentDayNumber);
+  const isWeeklyReviewDay = currentDayNumber % 7 === 0;
+  const visibleReviewIndex = dueReviewIndex >= 0 ? dueReviewIndex : isWeeklyReviewDay ? currentWeekIndex : -1;
+  const visibleWeek = visibleReviewIndex >= 0 ? weeks[visibleReviewIndex] : null;
+  const visibleReview = visibleReviewIndex >= 0 ? state.weeklyReviews[visibleReviewIndex] : null;
+  const visibleReviewComplete = isWeeklyReviewComplete(visibleReview);
+  const activeDayClosesVisibleWeek = visibleWeek && activeDay.day >= visibleWeek.to;
+  const weeklyRequiredForActiveDay = Boolean(activeDayClosesVisibleWeek && !visibleReviewComplete);
   const finalDate = addDays(state.startDate, TOTAL_DAYS - 1);
   const latestSignal = [...SIGNALS].reverse().find((signal) => stats.xp >= signal.minXp);
   const exportData = buildExport(state, stats, weeks);
   const isFinalDay = currentDayIndex + 1 >= TOTAL_DAYS;
+  const yesterdayIndex = currentDayIndex > 0 ? currentDayIndex - 1 : null;
+  const shouldFillYesterday = yesterdayIndex !== null && !state.days[yesterdayIndex]?.result;
 
   const updateActiveDay = (nextDay) => {
     setState((previous) => ({
@@ -598,26 +679,27 @@ function App() {
 
   const saveDay = () => {
     const evaluation = evaluateDay(activeDay);
+    if (!evaluation.canFix || weeklyRequiredForActiveDay) return;
     setState((previous) => ({
       ...previous,
       days: previous.days.map((day, index) => {
         if (index !== safeActiveDayIndex) return day;
-        const result = evaluation.id === 'draft' ? null : evaluation.id;
         return {
           ...activeDay,
-          result,
-          xp: result ? evaluation.xp : 0,
-          closedAt: result ? new Date().toISOString() : null,
+          result: evaluation.id,
+          xp: evaluation.xp,
+          closedAt: new Date().toISOString(),
         };
       }),
     }));
   };
 
   const updateWeeklyReview = (patch) => {
+    if (visibleReviewIndex < 0) return;
     setState((previous) => ({
       ...previous,
       weeklyReviews: previous.weeklyReviews.map((review, index) => (
-        index === currentWeekIndex ? { ...review, ...patch } : review
+        index === visibleReviewIndex ? { ...review, ...patch } : review
       )),
     }));
   };
@@ -680,37 +762,60 @@ function App() {
         <Header
           user={user}
           stats={stats}
-          currentDayIndex={currentDayIndex}
+          currentDayNumber={currentDayNumber}
           syncState={syncState}
+          activeView={activeView}
+          onViewChange={setActiveView}
           onExport={() => setShowExport(true)}
           onReset={() => setConfirmReset(true)}
           onLogOut={logOut}
+          shouldFillYesterday={shouldFillYesterday}
+          onSelectYesterday={() => {
+            if (yesterdayIndex !== null) {
+              setActiveView('main');
+              setActiveDayIndex(yesterdayIndex);
+            }
+          }}
         />
 
-        <section className="grid gap-4 lg:grid-cols-[1.05fr_1.35fr]">
-          <TodayPanel
-            day={activeDay}
-            evaluation={activeEvaluation}
-            onChange={updateActiveDay}
-            onSave={saveDay}
-            activeDayIndex={safeActiveDayIndex}
-            currentDayIndex={currentDayIndex}
-          />
-          <PathPanel
-            days={state.days}
-            activeDayIndex={safeActiveDayIndex}
-            currentDayIndex={currentDayIndex}
-            onSelect={setActiveDayIndex}
-            stats={stats}
-            signal={latestSignal}
-            finalDate={finalDate}
-          />
-        </section>
-
-        <Dashboard days={state.days} stats={stats} currentWeek={currentWeek} weeks={weeks} />
-        <WeeklyReflection week={currentWeek} review={currentReview} onChange={updateWeeklyReview} />
-        <Checkpoints days={state.days} currentDayIndex={currentDayIndex} />
-        {isFinalDay && <FinalReview review={state.finalReview} onChange={updateFinalReview} />}
+        {activeView === 'main' ? (
+          <>
+            <section className="grid gap-4 lg:grid-cols-[1.05fr_1.35fr]">
+              <TodayPanel
+                day={activeDay}
+                evaluation={activeEvaluation}
+                onChange={updateActiveDay}
+                onSave={saveDay}
+                activeDayIndex={safeActiveDayIndex}
+                currentDayIndex={currentDayIndex}
+                weeklyRequired={weeklyRequiredForActiveDay}
+              />
+              <PathPanel
+                days={state.days}
+                activeDayIndex={safeActiveDayIndex}
+                currentDayIndex={currentDayIndex}
+                onSelect={setActiveDayIndex}
+                stats={stats}
+                signal={latestSignal}
+                finalDate={finalDate}
+              />
+            </section>
+            {visibleWeek && (
+              <WeeklyReflection
+                week={visibleWeek}
+                review={visibleReview}
+                required={!visibleReviewComplete}
+                onChange={updateWeeklyReview}
+              />
+            )}
+            {isFinalDay && <FinalReview review={state.finalReview} onChange={updateFinalReview} />}
+          </>
+        ) : (
+          <>
+            <Dashboard days={state.days} stats={stats} currentWeek={currentWeek} weeks={weeks} />
+            <Checkpoints days={state.days} currentDayIndex={currentDayIndex} />
+          </>
+        )}
       </div>
 
       <AnimatePresence>
@@ -833,15 +938,27 @@ function StartMetric({ icon, title, text }) {
   );
 }
 
-function Header({ user, stats, currentDayIndex, syncState, onExport, onReset, onLogOut }) {
+function Header({
+  user,
+  stats,
+  currentDayNumber,
+  syncState,
+  activeView,
+  onViewChange,
+  onExport,
+  onReset,
+  onLogOut,
+  shouldFillYesterday,
+  onSelectYesterday,
+}) {
   const syncText = syncState === 'saving' ? 'сохраняю' : syncState === 'offline' ? 'офлайн' : 'синхронно';
   return (
     <header className="border border-[#eadfcd] bg-white/85 p-4 shadow-sm backdrop-blur rounded-lg">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-2 text-sm font-semibold text-[#5c7955]">
             <CalendarDays size={16} />
-            День {currentDayIndex + 1} из {TOTAL_DAYS}
+            День {currentDayNumber} из {TOTAL_DAYS}
             <span className="text-slate-300">/</span>
             Уровень {stats.level}
             <span className="text-slate-300">/</span>
@@ -853,14 +970,20 @@ function Header({ user, stats, currentDayIndex, syncState, onExport, onReset, on
           </h1>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-          <HeaderPill icon={<Flame size={16} />} label="XP" value={stats.xp} />
-          <HeaderPill icon={<Target size={16} />} label="1С/рынок" value={`${(stats.workMinutes / 60).toFixed(1)} ч`} />
-          <HeaderPill icon={<Scale size={16} />} label="Вес" value={stats.lastWeight ? `${stats.lastWeight} кг` : '--'} />
-          <HeaderPill icon={<User size={16} />} label="Аккаунт" value={user.email?.split('@')[0] || 'user'} />
-          <IconButton onClick={onExport} icon={<Download size={16} />} label="Экспорт" tone="blue" />
-          <IconButton onClick={onReset} icon={<RotateCcw size={16} />} label="Старт" tone="orange" />
-          <IconButton onClick={onLogOut} icon={<LogOut size={16} />} label="Выйти" tone="plain" />
+        <div className="flex flex-col gap-3 xl:items-end">
+          <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+            <HeaderPill icon={<User size={16} />} label="Аккаунт" value={user.email || 'user'} />
+            <IconButton onClick={onExport} icon={<Download size={16} />} label="Экспорт" tone="plain" compact />
+            <IconButton onClick={onReset} icon={<RotateCcw size={16} />} label="Старт" tone="plain" compact />
+            <IconButton onClick={onLogOut} icon={<LogOut size={16} />} label="Выйти" tone="plain" compact />
+          </div>
+          <div className="flex flex-wrap gap-2 xl:justify-end">
+            {shouldFillYesterday && (
+              <IconButton onClick={onSelectYesterday} icon={<CalendarDays size={16} />} label="Заполнить вчера" tone="green" />
+            )}
+            <ViewButton active={activeView === 'main'} onClick={() => onViewChange('main')} icon={<Target size={16} />} label="Основной" />
+            <ViewButton active={activeView === 'stats'} onClick={() => onViewChange('stats')} icon={<BarChart3 size={16} />} label="Статистика" />
+          </div>
         </div>
       </div>
       <div className="mt-4 h-3 overflow-hidden bg-[#edf1e8] rounded-md">
@@ -872,31 +995,62 @@ function Header({ user, stats, currentDayIndex, syncState, onExport, onReset, on
 
 function HeaderPill({ icon, label, value }) {
   return (
-    <div className="inline-flex min-h-[42px] items-center gap-2 border border-[#e5dccb] bg-[#fffaf1] px-3 py-2 rounded-md">
-      <span className="text-[#7c9a78]">{icon}</span>
-      <span className="text-xs font-semibold text-slate-500">{label}</span>
-      <span className="font-black text-slate-950">{value}</span>
+    <div className="grid min-h-[44px] max-w-[220px] grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 border border-[#e5dccb] bg-[#fffaf1] px-3 py-2 rounded-md">
+      <span className="row-span-2 text-[#7c9a78]">{icon}</span>
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</span>
+      <span className="min-w-0 truncate text-sm font-black text-slate-950" title={value}>{value}</span>
     </div>
   );
 }
 
-function IconButton({ onClick, icon, label, tone }) {
+function IconButton({ onClick, icon, label, tone, compact = false }) {
   const tones = {
     blue: 'border-[#c8d9e7] bg-[#edf7ff] text-[#255b7a] hover:bg-[#dff0fc]',
+    green: 'border-[#86efac] bg-[#22c55e] text-white shadow-sm hover:bg-[#16a34a]',
     orange: 'border-[#ecd3c6] bg-[#fff4ed] text-[#8a4b2d] hover:bg-[#ffe9dc]',
     plain: 'border-[#e8dfce] bg-white text-slate-700 hover:bg-[#fffaf1]',
   };
   return (
-    <button onClick={onClick} className={`inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-bold transition rounded-md ${tones[tone]}`}>
+    <button onClick={onClick} className={`inline-flex items-center justify-center gap-2 border text-sm font-bold transition rounded-md ${compact ? 'px-3 py-2' : 'px-4 py-3'} ${tones[tone]}`}>
       {icon}
       {label}
     </button>
   );
 }
 
-function TodayPanel({ day, evaluation, onChange, onSave, activeDayIndex, currentDayIndex }) {
-  const editable = activeDayIndex <= currentDayIndex;
+function ViewButton({ active, onClick, icon, label }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center justify-center gap-2 border px-4 py-3 text-sm font-black transition rounded-md ${active ? 'border-slate-950 bg-slate-950 text-white' : 'border-[#e8dfce] bg-[#fffdf8] text-slate-700 hover:bg-[#fffaf1]'}`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function TodayPanel({ day, evaluation, onChange, onSave, activeDayIndex, currentDayIndex, weeklyRequired }) {
+  const isFuture = activeDayIndex > currentDayIndex;
+  const isFixed = Boolean(day.result);
+  const editable = !isFuture && !isFixed;
   const tier = evaluation.id === 'draft' ? evaluation : TIERS[evaluation.id];
+  const canSave = editable && evaluation.canFix && !weeklyRequired;
+  const buttonClass = isFixed
+    ? 'border-[#86efac] bg-[#22c55e] text-white'
+    : canSave && evaluation.id === 'breakthrough'
+      ? 'border-[#86efac] bg-[#22c55e] text-white hover:bg-[#16a34a]'
+      : canSave
+        ? 'border-slate-950 bg-slate-950 text-white hover:bg-slate-800'
+        : 'border-[#e8dfce] bg-[#eef2f7] text-slate-400';
+  const buttonLabel = isFixed
+    ? 'День зафиксирован'
+    : weeklyRequired
+      ? 'Сначала закрой неделю'
+      : evaluation.canFix
+        ? 'Зафиксировать день'
+        : 'Заполни день полностью';
   return (
     <section className="border border-[#eadfcd] bg-white/90 p-4 shadow-sm rounded-lg">
       <div className="mb-4 flex items-start justify-between gap-3">
@@ -910,7 +1064,11 @@ function TodayPanel({ day, evaluation, onChange, onSave, activeDayIndex, current
       <div className="mb-5 grid gap-2 sm:grid-cols-3">
         <ScoreChip label="Калории" value={day.calories ? `${day.calories}` : '--'} tone={num(day.calories) <= CALORIE_TOP && num(day.calories) > 0 ? 'top' : num(day.calories) <= CALORIE_LIMIT && num(day.calories) > 0 ? 'ok' : 'draft'} />
         <ScoreChip label="1С/рынок" value={day.workMinutes ? `${day.workMinutes} мин` : '--'} tone={num(day.workMinutes) >= 120 ? 'top' : num(day.workMinutes) >= 60 ? 'ok' : 'draft'} />
-        <ScoreChip label="Score" value={`${evaluation.score}%`} tone={evaluation.id === 'breakthrough' ? 'top' : evaluation.id !== 'draft' ? 'ok' : 'draft'} />
+        <ScoreChip
+          label="Грейд"
+          value={`${evaluation.score}%`}
+          tone={evaluation.id === 'breakthrough' ? 'top' : evaluation.id === 'growth' || evaluation.id === 'base' ? 'ok' : evaluation.id === 'weak' ? 'weak' : evaluation.id === 'bad' ? 'bad' : 'draft'}
+        />
       </div>
 
       <div className="grid gap-4">
@@ -958,6 +1116,18 @@ function TodayPanel({ day, evaluation, onChange, onSave, activeDayIndex, current
           <div className="h-full transition-all duration-500" style={{ width: `${evaluation.score}%`, backgroundColor: tier.color }} />
         </div>
         <p className="mt-3 text-sm font-semibold text-slate-600">{evaluation.description}</p>
+        {isFixed && (
+          <div className="mt-3 flex items-center gap-2 border border-[#9ee8b7] bg-[#e9fbef] p-3 text-sm font-black text-[#0f7138] rounded-lg">
+            <CheckCircle2 size={16} />
+            Факт дня закрыт. Поля больше не редактируются.
+          </div>
+        )}
+        {weeklyRequired && (
+          <div className="mt-3 flex items-center gap-2 border border-[#f1d2a7] bg-[#fff3df] p-3 text-sm font-black text-[#81501f] rounded-lg">
+            <AlertCircle size={16} />
+            Это рубеж недели: заполни недельную рефлексию ниже, потом фиксируй день.
+          </div>
+        )}
         {evaluation.blockers.length > 0 && (
           <div className="mt-3 grid gap-2">
             {evaluation.blockers.map((blocker) => (
@@ -970,9 +1140,9 @@ function TodayPanel({ day, evaluation, onChange, onSave, activeDayIndex, current
         )}
       </div>
 
-      <button onClick={onSave} disabled={!editable} className="mt-4 flex w-full items-center justify-center gap-2 bg-slate-950 px-4 py-3 font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 rounded-md">
+      <button onClick={onSave} disabled={!canSave} className={`mt-4 flex w-full items-center justify-center gap-2 border px-4 py-3 font-black transition disabled:cursor-not-allowed rounded-md ${buttonClass}`}>
         <CheckCircle2 size={18} />
-        Зафиксировать день
+        {buttonLabel}
       </button>
     </section>
   );
@@ -985,7 +1155,7 @@ function ProofPicker({ value, onChange, disabled }) {
     else onChange([...selected, proof]);
   };
   return (
-    <div className="border border-[#e8dfce] bg-white p-3 rounded-lg">
+    <div className={`border border-[#e8dfce] p-3 rounded-lg ${disabled ? 'bg-[#f8fafc]' : 'bg-white'}`}>
       <span className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-600">
         <FileText size={18} />
         Доказательства дня
@@ -999,7 +1169,7 @@ function ProofPicker({ value, onChange, disabled }) {
               type="button"
               disabled={disabled}
               onClick={() => toggleProof(proof)}
-              className={`inline-flex items-center gap-2 border px-3 py-2 text-sm font-bold transition rounded-md ${isSelected ? 'border-[#cfe2c8] bg-[#eef6e9] text-[#365f36]' : 'border-[#e8dfce] bg-[#fffdf8] text-slate-600 hover:bg-[#fffaf1]'}`}
+              className={`inline-flex items-center gap-2 border px-3 py-2 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-75 rounded-md ${isSelected ? 'border-[#cfe2c8] bg-[#eef6e9] text-[#365f36]' : 'border-[#e8dfce] bg-[#fffdf8] text-slate-600 hover:bg-[#fffaf1]'}`}
             >
               {isSelected ? <CheckCircle2 size={15} /> : <span className="h-[15px] w-[15px] border border-slate-300 rounded-sm" />}
               {proof}
@@ -1013,7 +1183,7 @@ function ProofPicker({ value, onChange, disabled }) {
 
 function NumberField({ icon, label, value, onChange, disabled, min, step = '1' }) {
   return (
-    <label className="block border border-[#e8dfce] bg-white p-3 rounded-lg">
+    <label className={`block border border-[#e8dfce] p-3 rounded-lg ${disabled ? 'bg-[#f8fafc]' : 'bg-white'}`}>
       <span className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-600">{icon}{label}</span>
       <input
         type="number"
@@ -1022,7 +1192,7 @@ function NumberField({ icon, label, value, onChange, disabled, min, step = '1' }
         step={step}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full border border-[#e6dcc8] bg-[#fffdf8] px-3 py-2 text-lg font-black text-slate-950 outline-none transition focus:border-[#8fb989] disabled:text-slate-400 rounded-md"
+        className="w-full border border-[#e6dcc8] bg-[#fffdf8] px-3 py-2 text-lg font-black text-slate-950 outline-none transition focus:border-[#8fb989] disabled:bg-[#eef2f7] disabled:text-slate-500 rounded-md"
       />
     </label>
   );
@@ -1030,14 +1200,14 @@ function NumberField({ icon, label, value, onChange, disabled, min, step = '1' }
 
 function TextField({ icon, label, value, onChange, disabled, placeholder }) {
   return (
-    <label className="block border border-[#e8dfce] bg-white p-3 rounded-lg">
+    <label className={`block border border-[#e8dfce] p-3 rounded-lg ${disabled ? 'bg-[#f8fafc]' : 'bg-white'}`}>
       <span className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-600">{icon}{label}</span>
       <textarea
         value={value}
         disabled={disabled}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className="h-20 w-full resize-none border border-[#e6dcc8] bg-[#fffdf8] px-3 py-2 text-base font-semibold leading-6 text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#8fb989] disabled:text-slate-400 rounded-md"
+        className="h-20 w-full resize-none border border-[#e6dcc8] bg-[#fffdf8] px-3 py-2 text-base font-semibold leading-6 text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#8fb989] disabled:bg-[#eef2f7] disabled:text-slate-500 rounded-md"
       />
     </label>
   );
@@ -1045,9 +1215,18 @@ function TextField({ icon, label, value, onChange, disabled, placeholder }) {
 
 function ResultBadge({ evaluation }) {
   const tier = evaluation.id === 'draft' ? evaluation : TIERS[evaluation.id];
+  const icon = evaluation.id === 'breakthrough'
+    ? <Trophy size={17} />
+    : evaluation.id === 'growth'
+      ? <Sparkles size={17} />
+      : evaluation.id === 'bad'
+        ? <XCircle size={17} />
+        : evaluation.id === 'weak'
+          ? <AlertCircle size={17} />
+          : <CheckCircle2 size={17} />;
   return (
     <div className="inline-flex items-center gap-2 border px-3 py-2 text-sm font-black rounded-md" style={{ backgroundColor: tier.bg, borderColor: tier.border, color: tier.text }}>
-      {evaluation.id === 'breakthrough' ? <Trophy size={17} /> : evaluation.id === 'growth' ? <Sparkles size={17} /> : <CheckCircle2 size={17} />}
+      {icon}
       {evaluation.short}
     </div>
   );
@@ -1055,8 +1234,10 @@ function ResultBadge({ evaluation }) {
 
 function ScoreChip({ label, value, tone }) {
   const styles = {
-    top: 'border-[#f1d2a7] bg-[#fff3df] text-[#81501f]',
+    top: 'border-[#9ee8b7] bg-[#e9fbef] text-[#0f7138]',
     ok: 'border-[#c8e1ef] bg-[#eaf5fb] text-[#255b7a]',
+    weak: 'border-[#efd4aa] bg-[#fff6e8] text-[#81501f]',
+    bad: 'border-[#efc6c6] bg-[#fff1f1] text-[#8d3333]',
     draft: 'border-[#e8dfce] bg-[#fffaf1] text-slate-600',
   };
   return (
@@ -1078,10 +1259,12 @@ function PathPanel({ days, activeDayIndex, currentDayIndex, onSelect, stats, sig
           </div>
           <h2 className="text-2xl font-black text-slate-950">Рост видно на дистанции</h2>
         </div>
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <MiniStat label="База" value={stats.tierCounts.base || 0} />
-          <MiniStat label="Рост" value={stats.tierCounts.growth || 0} />
-          <MiniStat label="Топ" value={stats.tierCounts.breakthrough || 0} />
+        <div className="grid grid-cols-5 gap-1 text-center">
+          <MiniStat label="Плохо" value={stats.tierCounts.bad || 0} />
+          <MiniStat label="Слабо" value={stats.tierCounts.weak || 0} />
+          <MiniStat label="Обыч" value={stats.tierCounts.base || 0} />
+          <MiniStat label="Сила" value={stats.tierCounts.growth || 0} />
+          <MiniStat label="Идеал" value={stats.tierCounts.breakthrough || 0} />
         </div>
       </div>
 
@@ -1351,32 +1534,37 @@ function WeeklyPanel({ week }) {
   );
 }
 
-function WeeklyReflection({ week, review, onChange }) {
+function WeeklyReflection({ week, review, required, onChange }) {
   return (
-    <section className="border border-[#eadfcd] bg-white/90 p-4 shadow-sm rounded-lg">
+    <section className={`border p-4 shadow-sm rounded-lg ${required ? 'border-[#f1d2a7] bg-[#fff8eb]' : 'border-[#cfe2c8] bg-[#f1f8ed]'}`}>
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="mb-1 flex items-center gap-2 text-sm font-bold text-slate-500">
+          <div className={`mb-1 flex items-center gap-2 text-sm font-bold ${required ? 'text-[#81501f]' : 'text-[#365f36]'}`}>
             <FileText size={16} />
-            Рефлексия каждые 7 дней
+            {required ? 'Обязательная фиксация недели' : 'Неделя закрыта'}
           </div>
           <h2 className="text-2xl font-black text-slate-950">Неделя {week.number}: что реально произошло</h2>
         </div>
         <div className="text-sm font-bold text-slate-500">Дни {week.from}-{week.to}</div>
       </div>
+      {required && (
+        <div className="mb-3 border border-[#f1d2a7] bg-[#fff3df] p-3 text-sm font-black leading-6 text-[#81501f] rounded-lg">
+          Заполни эти 3 поля, чтобы зафиксировать день {week.to}. После закрытия он больше не будет висеть каждый день.
+        </div>
+      )}
       <div className="grid gap-3 lg:grid-cols-3">
-        <ReflectionField label="Что сработало?" value={review.worked} onChange={(value) => onChange({ worked: value })} placeholder="Что двигало форму, 1С или рынок?" />
-        <ReflectionField label="Где просел?" value={review.blocked} onChange={(value) => onChange({ blocked: value })} placeholder="Калории, пустые дни, мало 1С, хаос?" />
-        <ReflectionField label="Главный рычаг недели" value={review.nextLever} onChange={(value) => onChange({ nextLever: value })} placeholder="Один ход, который даст максимум." />
+        <ReflectionField label="Что сработало?" value={review.worked} onChange={(value) => onChange({ worked: value })} placeholder="Что двигало форму, 1С или рынок?" required={required} />
+        <ReflectionField label="Где просел?" value={review.blocked} onChange={(value) => onChange({ blocked: value })} placeholder="Калории, пустые дни, мало 1С, хаос?" required={required} />
+        <ReflectionField label="Главный рычаг недели" value={review.nextLever} onChange={(value) => onChange({ nextLever: value })} placeholder="Один ход, который даст максимум." required={required} />
       </div>
     </section>
   );
 }
 
-function ReflectionField({ label, value, onChange, placeholder }) {
+function ReflectionField({ label, value, onChange, placeholder, required = false }) {
   return (
     <label className="block border border-[#e8dfce] bg-[#fffaf1] p-3 rounded-lg">
-      <span className="mb-2 block text-sm font-black text-slate-600">{label}</span>
+      <span className="mb-2 block text-sm font-black text-slate-600">{label}{required && <span className="text-[#c65d5d]"> *</span>}</span>
       <textarea
         value={value}
         placeholder={placeholder}
