@@ -442,7 +442,7 @@ function evaluateLifeDay(day) {
   if (!hasReadingAnswer) blockers.push('Чтение: внеси минуты, даже если сегодня было 0');
   if (!hasProof) blockers.push('Жизнь: выбери хотя бы одно доказательство движения');
   if (!hasAction) blockers.push('Новый шаг: коротко запиши, чем день отличался от автопилота');
-  if (!hasSummary) blockers.push('Поддержка себя: оставь одну честную строку');
+  if (!hasSummary) blockers.push('Рефлексия: коротко напиши, где не справился и почему');
 
   if (!canFix) {
     return {
@@ -652,7 +652,7 @@ function buildExport(state, stats, weeks) {
     '## Дни',
     ...closed.map((day) => (
       isLife
-        ? `- День ${day.day} (${day.date}): ${TIERS[day.result]?.title || day.result}, XP ${day.xp}, без алкоголя: ${day.alcoholFree ? 'да' : 'нет'}, без сладкого: ${day.sweetFree ? 'да' : 'нет'}, чтение ${day.readingMinutes || 0} мин, ккал ${day.calories}, приёмов ${day.meals}, вес ${day.weight} кг, доказательства: ${(day.proofs || []).join(', ') || '-'}, новый шаг: ${day.actionText}, поддержка себя: ${day.summary || '-'}`
+        ? `- День ${day.day} (${day.date}): ${TIERS[day.result]?.title || day.result}, XP ${day.xp}, без алкоголя: ${day.alcoholFree ? 'да' : 'нет'}, без сладкого: ${day.sweetFree ? 'да' : 'нет'}, чтение ${day.readingMinutes || 0} мин, ккал ${day.calories}, приёмов ${day.meals}, вес ${day.weight} кг, доказательства: ${(day.proofs || []).join(', ') || '-'}, новый шаг: ${day.actionText}, где не справился и почему: ${day.summary || '-'}`
         : `- День ${day.day} (${day.date}): ${TIERS[day.result]?.title || day.result}, XP ${day.xp}, 1С/рынок ${day.workMinutes} мин, ккал ${day.calories}, приёмов ${day.meals}, вес ${day.weight} кг, доказательства: ${(day.proofs || []).join(', ') || '-'}, действие: ${day.actionText}, итог: ${day.summary || '-'}`
     )),
     '',
@@ -1366,10 +1366,10 @@ function TodayPanel({ day, evaluation, scenario, onChange, onSave, activeDayInde
 
         <TextField
           icon={<FileText size={18} />}
-          label={isLife ? 'Как я сегодня поддержал себя?' : 'Что стало сильнее во мне или системе?'}
+          label={isLife ? 'Где не справился и почему?' : 'Что стало сильнее во мне или системе?'}
           value={day.summary}
           disabled={!editable}
-          placeholder={isLife ? 'Одна честная строка без самокритики' : 'Одна строка результата без лишней рефлексии'}
+          placeholder={isLife ? 'Если всё получилось — так и напиши. Если нет — где и почему.' : 'Одна строка результата без лишней рефлексии'}
           onChange={(value) => onChange({ ...day, summary: value })}
         />
       </div>
