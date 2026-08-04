@@ -5,15 +5,18 @@ import {
   AlertCircle,
   BarChart3,
   BatteryCharging,
+  Brain,
   BookOpen,
-  BriefcaseBusiness,
   CalendarDays,
   CandyOff,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   Cloud,
   Copy,
   Download,
+  Filter,
   FileText,
   Flame,
   Footprints,
@@ -23,7 +26,7 @@ import {
   Lock,
   LogIn,
   LogOut,
-  PackageCheck,
+  Medal,
   Play,
   Plus,
   RotateCcw,
@@ -44,6 +47,7 @@ import {
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
 import { doc, onSnapshot, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { auth, db, firebaseConfigured, googleProvider } from './firebase';
+import transformationBanner from './assets/transformation-banner.webp';
 
 const TOTAL_DAYS = 120;
 const STORAGE_KEY = 'growth-120-account-state-v2';
@@ -62,13 +66,21 @@ const DEFAULT_HABITS = [
   { id: 'alcohol', name: 'Без алкоголя', active: true, createdAt: null },
   { id: 'sweet', name: 'Без сладкого вкуса', active: true, createdAt: null },
 ];
-const WORK_WIN_TYPES = [
-  'Разобрался в новом',
-  'Сделал самостоятельно',
-  'Получил хорошую обратную связь',
-  'Помог команде',
-  'Ускорил или улучшил работу',
-  'Другое',
+const ANXIETY_CATEGORIES = [
+  { id: 'work', label: 'Работа' },
+  { id: 'communication', label: 'Общение' },
+  { id: 'expression', label: 'Самовыражение' },
+  { id: 'new', label: 'Новое действие' },
+  { id: 'body', label: 'Тело' },
+  { id: 'other', label: 'Другое' },
+];
+const WIN_CATEGORIES = [
+  { id: 'work', label: 'Ценность на работе' },
+  { id: 'body', label: 'Тело и форма' },
+  { id: 'expression', label: 'Самовыражение' },
+  { id: 'discipline', label: 'Выбор и дисциплина' },
+  { id: 'relationships', label: 'Отношения' },
+  { id: 'other', label: 'Другое' },
 ];
 
 const SCENARIOS = {
@@ -82,41 +94,41 @@ const SCENARIOS = {
   },
   life: {
     id: 'life',
-    title: 'Новая жизнь и привычки',
-    shortTitle: 'Новая жизнь',
-    header: '120 дней: новая жизнь',
-    description: 'Новая личность, 65 кг с выраженным прессом и уверенно пройденный испытательный срок.',
-    finish: 'Кем я стал, как выглядит моё тело и почему испытательный срок завершился победой.',
+    title: '120 дней сильных перемен',
+    shortTitle: 'Сильные перемены',
+    header: '120 дней: версия, которую видно',
+    description: '65 кг, ценность в ЯвКонтуре и спокойное самовыражение без игры в чужую уверенность.',
+    finish: 'Какие факты доказывают, что я изменил тело, закрепился в профессии и стал свободнее быть собой.',
   },
 };
 
 const TIERS = {
   bad: {
     id: 'bad',
-    title: 'Плохой день',
-    short: 'Плохо',
+    title: 'День возвращения',
+    short: 'Возврат',
     xp: 10,
     color: '#c65d5d',
     bg: '#fff1f1',
     border: '#efc6c6',
     text: '#8d3333',
-    description: 'День зафиксирован честно, но он тянет результат вниз. Это не приговор, это сигнал.',
+    description: 'День зафиксирован честно. Главное — траектория продолжается, а завтра есть точка возврата.',
   },
   weak: {
     id: 'weak',
-    title: 'Слабый день',
-    short: 'Слабо',
+    title: 'Минимум удержан',
+    short: 'Минимум',
     xp: 25,
     color: '#d18b47',
     bg: '#fff6e8',
     border: '#efd4aa',
     text: '#81501f',
-    description: 'Минимальный факт есть, но фокус, питание или доказательства не дотянули до рабочего уровня.',
+    description: 'Минимум удержан. Это не вершина, но система не исчезла и может усилиться завтра.',
   },
   base: {
     id: 'base',
-    title: 'Обычный день',
-    short: 'Обычно',
+    title: 'День опоры',
+    short: 'Опора',
     xp: 50,
     color: '#168b8f',
     bg: '#e6f9f8',
@@ -126,8 +138,8 @@ const TIERS = {
   },
   growth: {
     id: 'growth',
-    title: 'Сильный день',
-    short: 'Сильно',
+    title: 'День роста',
+    short: 'Рост',
     xp: 110,
     color: '#20a969',
     bg: '#e8fbf1',
@@ -137,8 +149,8 @@ const TIERS = {
   },
   breakthrough: {
     id: 'breakthrough',
-    title: 'Идеальный день',
-    short: 'Идеал',
+    title: 'День прорыва',
+    short: 'Прорыв',
     xp: 190,
     color: '#18a957',
     bg: '#e9fbef',
@@ -161,17 +173,6 @@ const PROOF_TYPES = [
   'Собеседование',
   'Тестовое',
   'Портфолио',
-  'Другое',
-];
-
-const LIFE_PROOF_TYPES = [
-  'Чтение',
-  'Движение',
-  'Порядок дома',
-  'Важные дела',
-  'Близкие',
-  'Новый опыт',
-  'Восстановление',
   'Другое',
 ];
 
@@ -232,6 +233,10 @@ function num(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function average(values) {
+  return values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
+}
+
 function getActiveHabits(habits = []) {
   return habits.filter((habit) => habit.active !== false);
 }
@@ -270,6 +275,28 @@ function createHabitId(name) {
   return `${slug || 'habit'}-${Date.now().toString(36)}`;
 }
 
+function createAnxietySituation() {
+  return {
+    id: `anxiety-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    category: 'work',
+    situation: '',
+    before: '',
+    peak: '',
+    after: '',
+    action: '',
+  };
+}
+
+function isAnxietySituationComplete(item) {
+  return Boolean(
+    item?.situation?.trim().length >= 3
+    && item?.before !== ''
+    && item?.peak !== ''
+    && item?.after !== ''
+    && item?.action?.trim().length >= 3
+  );
+}
+
 function userCacheKey(uid) {
   return `${STORAGE_KEY}:${uid || 'local'}`;
 }
@@ -290,6 +317,9 @@ function createDay(day, startDate) {
     activeCalories: '',
     steps: '',
     habitValues: {},
+    anxietySituations: [],
+    dailyWinCategory: '',
+    dailyWinText: '',
     artifactText: '',
     workWinType: '',
     workWinText: '',
@@ -331,7 +361,7 @@ function getDueReviewIndex(weeklyReviews, currentDayNumber) {
 function createInitialState(startDate = todayKey(), scenario = 'career') {
   const createdAt = new Date().toISOString();
   return {
-    version: 4,
+    version: 5,
     scenario,
     journeyId: `journey-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     profile: { ...DEFAULT_PROFILE },
@@ -357,7 +387,7 @@ function normalizeState(raw) {
   return {
     ...createInitialState(startDate, raw.scenario || 'career'),
     ...raw,
-    version: 4,
+    version: 5,
     scenario: raw.scenario || 'career',
     journeyId: raw.journeyId || `legacy-${raw.createdAt || startDate}`,
     profile: {
@@ -382,6 +412,19 @@ function normalizeState(raw) {
         actionText: previous.actionText ?? previous.offerAction ?? '',
         proofs: Array.isArray(previous.proofs) ? previous.proofs : legacyProof,
         habitValues,
+        anxietySituations: Array.isArray(previous.anxietySituations)
+          ? previous.anxietySituations.map((item, itemIndex) => ({
+            id: item.id || `anxiety-${index + 1}-${itemIndex + 1}`,
+            category: item.category || 'other',
+            situation: item.situation || '',
+            before: item.before ?? '',
+            peak: item.peak ?? '',
+            after: item.after ?? '',
+            action: item.action || '',
+          }))
+          : [],
+        dailyWinCategory: previous.dailyWinCategory || (previous.workWinType ? 'work' : ''),
+        dailyWinText: previous.dailyWinText || previous.workWinText || (raw.scenario === 'life' ? previous.actionText : previous.summary) || '',
         day: index + 1,
         date: addDays(startDate, index),
       };
@@ -492,15 +535,16 @@ function evaluateDay(day, scenario = 'career', habits = DEFAULT_HABITS) {
   const hasWeight = weight > 0;
   const hasActivityFields = day.activeCalories !== '' && day.steps !== '';
   const hasProof = Array.isArray(day.proofs) && day.proofs.length > 0;
-  const hasSummary = day.summary.trim().length >= 5;
-  const canFix = hasWorkFields && hasNutritionFields && hasWeight && hasActivityFields && hasProof && hasSummary;
+  const hasDailyWin = Boolean(day.dailyWinCategory && day.dailyWinText?.trim().length >= 5);
+  const anxietyComplete = (day.anxietySituations || []).every(isAnxietySituationComplete);
+  const canFix = hasWorkFields && hasNutritionFields && hasWeight && hasActivityFields && hasProof && hasDailyWin && anxietyComplete;
 
   const score = [
     hasWork ? 30 : hasWorkFields ? 14 : 0,
     hasNutrition ? 25 : hasNutritionFields ? 8 : 0,
     hasWeight ? 15 : 0,
     hasProof ? 15 : 0,
-    hasSummary ? 15 : 0,
+    hasDailyWin ? 15 : 0,
   ].reduce((sum, value) => sum + value, 0);
 
   const blockers = [];
@@ -509,7 +553,8 @@ function evaluateDay(day, scenario = 'career', habits = DEFAULT_HABITS) {
   if (!hasNutritionFields) blockers.push('Питание: внеси калории и количество приёмов пищи');
   if (!hasWeight) blockers.push('Вес: внеси текущий вес');
   if (!hasActivityFields) blockers.push('Активность: внеси активные калории и шаги, даже если значение равно 0');
-  if (!hasSummary) blockers.push('Итог дня: одна короткая строка результата');
+  if (!hasDailyWin) blockers.push('Победа дня: зафиксируй одно доказательство роста');
+  if (!anxietyComplete) blockers.push('Тревога: заверши или удали добавленную ситуацию');
 
   if (!canFix) {
     return {
@@ -538,7 +583,7 @@ function evaluateDay(day, scenario = 'career', habits = DEFAULT_HABITS) {
   if (workMinutes >= 75 && hasNutrition && day.actionText.trim().length >= 18) {
     tier = TIERS.growth;
   }
-  if (workMinutes >= 120 && calories <= CALORIE_TOP && hasProof && hasSummary) {
+  if (workMinutes >= 120 && calories <= CALORIE_TOP && hasProof && hasDailyWin) {
     tier = TIERS.breakthrough;
   }
 
@@ -562,17 +607,15 @@ function evaluateLifeDay(day, habits) {
   const habitRate = activeHabits.length ? keptHabits / activeHabits.length : 0;
   const hasReadingAnswer = day.readingMinutes !== '' && day.readingMinutes !== null && day.readingMinutes !== undefined;
   const hasActivityFields = day.activeCalories !== '' && day.steps !== '';
-  const hasProof = Array.isArray(day.proofs) && day.proofs.length > 0;
-  const hasAction = day.actionText.trim().length >= 5;
-  const hasSummary = day.summary.trim().length >= 5;
+  const hasDailyWin = Boolean(day.dailyWinCategory && day.dailyWinText?.trim().length >= 5);
+  const anxietyComplete = (day.anxietySituations || []).every(isAnxietySituationComplete);
   const canFix = hasNutritionFields
     && hasWeight
     && hasHabitAnswers
     && hasReadingAnswer
     && hasActivityFields
-    && hasProof
-    && hasAction
-    && hasSummary;
+    && hasDailyWin
+    && anxietyComplete;
 
   const score = [
     hasNutrition ? 20 : hasNutritionFields ? 8 : 0,
@@ -580,8 +623,7 @@ function evaluateLifeDay(day, habits) {
     hasActivityFields ? 10 : 0,
     Math.round(habitRate * 35),
     readingMinutes >= 20 ? 10 : readingMinutes > 0 ? 5 : 0,
-    hasProof && hasAction ? 10 : 0,
-    hasSummary ? 10 : 0,
+    hasDailyWin ? 20 : 0,
   ].reduce((sum, value) => sum + value, 0);
 
   const blockers = [];
@@ -590,9 +632,8 @@ function evaluateLifeDay(day, habits) {
   if (!hasWeight) blockers.push('Вес: внеси текущий вес');
   if (!hasActivityFields) blockers.push('Активность: внеси активные калории и шаги, даже если значение равно 0');
   if (!hasReadingAnswer) blockers.push('Чтение: внеси минуты, даже если сегодня было 0');
-  if (!hasProof) blockers.push('Жизнь: выбери хотя бы одно доказательство движения');
-  if (!hasAction) blockers.push('Новый шаг: коротко запиши, чем день отличался от автопилота');
-  if (!hasSummary) blockers.push('Рефлексия: коротко напиши, где не справился и почему');
+  if (!hasDailyWin) blockers.push('Победа дня: зафиксируй одно доказательство роста');
+  if (!anxietyComplete) blockers.push('Тревога: заверши или удали добавленную ситуацию');
 
   if (!canFix) {
     return {
@@ -656,13 +697,27 @@ function calculateStats(days, currentDayIndex, habits = DEFAULT_HABITS, profile 
   const avgEnergyBalance = energyBalances.length ? Math.round(energyBalances.reduce((sum, item) => sum + item.value, 0) / energyBalances.length) : 0;
   const deficitDays = energyBalances.filter((item) => item.value < 0).length;
   const surplusDays = energyBalances.filter((item) => item.value > 0).length;
+  const totalDeficit = Math.abs(energyBalances.filter((item) => item.value < 0).reduce((sum, item) => sum + item.value, 0));
+  const totalEnergyBalance = energyBalances.reduce((sum, item) => sum + item.value, 0);
 
   const workMinutes = closedDays.reduce((sum, day) => sum + num(day.workMinutes), 0);
   const proofCount = closedDays.reduce((sum, day) => sum + (Array.isArray(day.proofs) ? day.proofs.length : 0), 0);
   const readingMinutes = recordedDays.reduce((sum, day) => sum + num(day.readingMinutes), 0);
   const readingDays = recordedDays.filter((day) => num(day.readingMinutes) > 0).length;
-  const workWins = recordedDays.filter((day) => day.workWinType || day.workWinText?.trim());
-  const artifacts = recordedDays.filter((day) => day.artifactText?.trim());
+  const dailyWins = recordedDays.filter((day) => day.dailyWinText?.trim());
+  const anxietyEvents = recordedDays.flatMap((day) => (day.anxietySituations || []).map((item) => ({
+    ...item,
+    day: day.day,
+    date: day.date,
+    complete: isAnxietySituationComplete(item),
+  }))).filter((item) => item.complete);
+  const anxietyBefore = average(anxietyEvents.map((item) => num(item.before)));
+  const anxietyPeak = average(anxietyEvents.map((item) => num(item.peak)));
+  const anxietyAfter = average(anxietyEvents.map((item) => num(item.after)));
+  const trendWindow = Math.min(5, Math.floor(anxietyEvents.length / 2));
+  const anxietyTrend = trendWindow
+    ? average(anxietyEvents.slice(-trendWindow).map((item) => num(item.peak))) - average(anxietyEvents.slice(0, trendWindow).map((item) => num(item.peak)))
+    : null;
   const habitStats = habits.map((habit) => {
     const answered = closedDays.filter((day) => typeof getHabitValue(day, habit.id) === 'boolean');
     const kept = answered.filter((day) => getHabitValue(day, habit.id) === true).length;
@@ -718,12 +773,18 @@ function calculateStats(days, currentDayIndex, habits = DEFAULT_HABITS, profile 
     avgEnergyBalance,
     deficitDays,
     surplusDays,
+    totalDeficit,
+    totalEnergyBalance,
     workMinutes,
     proofCount,
     readingMinutes,
     readingDays,
-    workWins,
-    artifacts,
+    dailyWins,
+    anxietyEvents,
+    anxietyBefore,
+    anxietyPeak,
+    anxietyAfter,
+    anxietyTrend,
     habitStats,
     completionRate,
     emptyDays,
@@ -768,8 +829,8 @@ function getWeeks(days, habits = DEFAULT_HABITS, profile = DEFAULT_PROFILE) {
       activeCalories: closed.reduce((sum, day) => sum + num(day.activeCalories), 0),
       steps: closed.reduce((sum, day) => sum + num(day.steps), 0),
       avgEnergyBalance: energyBalances.length ? Math.round(energyBalances.reduce((sum, value) => sum + value, 0) / energyBalances.length) : 0,
-      workWins: closed.filter((day) => day.workWinType || day.workWinText?.trim()).length,
-      artifacts: closed.filter((day) => day.artifactText?.trim()).length,
+      dailyWins: closed.filter((day) => day.dailyWinText?.trim()).length,
+      anxietyEvents: closed.reduce((sum, day) => sum + (day.anxietySituations || []).filter(isAnxietySituationComplete).length, 0),
       breakthrough: closed.filter((day) => day.result === 'breakthrough').length,
       growth: closed.filter((day) => day.result === 'growth').length,
       base: closed.filter((day) => day.result === 'base').length,
@@ -804,7 +865,8 @@ function checkpointSummary(days, dayNumber, habits = DEFAULT_HABITS, profile = D
     readingMinutes: closed.reduce((sum, day) => sum + num(day.readingMinutes), 0),
     steps: closed.reduce((sum, day) => sum + num(day.steps), 0),
     avgEnergyBalance: energyBalances.length ? Math.round(energyBalances.reduce((sum, value) => sum + value, 0) / energyBalances.length) : 0,
-    workWins: closed.filter((day) => day.workWinType || day.workWinText?.trim()).length,
+    dailyWins: closed.filter((day) => day.dailyWinText?.trim()).length,
+    anxietyEvents: closed.reduce((sum, day) => sum + (day.anxietySituations || []).filter(isAnxietySituationComplete).length, 0),
   };
 }
 
@@ -818,12 +880,12 @@ function buildExport(state, stats, weeks) {
     ? [
       ...habitLines,
       `Чтение: ${(stats.readingMinutes / 60).toFixed(1)} ч за ${stats.readingDays} дней`,
-      `Побед испытательного срока: ${stats.workWins.length}`,
-      `Артефактов дня: ${stats.artifacts.length}`,
+      `Побед дня: ${stats.dailyWins.length}`,
+      `Тревожных ситуаций: ${stats.anxietyEvents.length}`,
     ]
     : [`1С/рынок часы: ${(stats.workMinutes / 60).toFixed(1)}`];
   const aiQuestion = isLife
-    ? 'Проанализируй мой 120-дневный путь изменения личности без морализаторства. Найди, какие условия помогают удерживать выбранные привычки, питание, дефицит энергии, шаги и вес, а также успешно проходить испытательный срок. Покажи связи между срывами, энергобалансом, артефактами дня и рабочими победами. Дай 3 реалистичных рычага на следующую неделю.'
+    ? 'Проанализируй мой 120-дневный путь изменения личности без морализаторства. Найди, какие условия помогают удерживать привычки, питание, дефицит энергии и вес, закрепляться в ЯвКонтуре и спокойнее проявлять себя. Сопоставь конкретные тревожные ситуации, уровни до/на пике/после и победы дня. Дай 3 реалистичных рычага на следующую неделю.'
     : 'Проанализируй мой 120-дневный путь. Найди, почему я приближаюсь или не приближаюсь к идеальной форме, сильному 1С-уровню и выходу на рынок. Объясни связь минут 1С/рынка, питания, веса и доказательств роста. Дай 3 главных рычага на следующую неделю.';
   const markdown = [
     `# ${SCENARIOS[scenario].header}`,
@@ -841,6 +903,7 @@ function buildExport(state, stats, weeks) {
     `Средние активные калории: ${stats.avgActiveCalories || 0} ккал`,
     `Средние шаги: ${stats.avgSteps || 0}`,
     `Средний энергобаланс: ${stats.avgEnergyBalance > 0 ? '+' : ''}${stats.avgEnergyBalance} ккал`,
+    `Суммарный дефицит: ${stats.totalDeficit} ккал`,
     `Вес: ${stats.firstWeight || 'нет'} -> ${stats.lastWeight || 'нет'} кг, дельта ${stats.weightDelta} кг`,
     `Доказательств роста: ${stats.proofCount}`,
     '',
@@ -855,7 +918,7 @@ function buildExport(state, stats, weeks) {
     '## Недельные метрики',
     ...weeks.filter((week) => week.closed.length).map((week) => (
       isLife
-        ? `- Неделя ${week.number}: закрыто ${week.closed.length}/7, очки ${week.xp}, привычки: ${week.habitStats.map((habit) => `${habit.name} ${habit.kept}/${habit.answered}`).join(', ') || '-'}, чтение ${(week.readingMinutes / 60).toFixed(1)} ч, шаги ${week.steps}, энергобаланс ${week.avgEnergyBalance > 0 ? '+' : ''}${week.avgEnergyBalance} ккал, рабочих побед ${week.workWins}, артефактов ${week.artifacts}, вес ${week.weightDelta > 0 ? '+' : ''}${week.weightDelta} кг.`
+        ? `- Неделя ${week.number}: закрыто ${week.closed.length}/7, очки ${week.xp}, привычки: ${week.habitStats.map((habit) => `${habit.name} ${habit.kept}/${habit.answered}`).join(', ') || '-'}, чтение ${(week.readingMinutes / 60).toFixed(1)} ч, шаги ${week.steps}, энергобаланс ${week.avgEnergyBalance > 0 ? '+' : ''}${week.avgEnergyBalance} ккал, побед дня ${week.dailyWins}, тревожных ситуаций ${week.anxietyEvents}, вес ${week.weightDelta > 0 ? '+' : ''}${week.weightDelta} кг.`
         : `- Неделя ${week.number}: закрыто ${week.closed.length}/7, очки ${week.xp}, 1С/рынок ${(week.work / 60).toFixed(1)} ч, средние ккал ${week.avgCalories || '-'}, дней <=1800: ${week.topCalories}, вес ${week.weightDelta > 0 ? '+' : ''}${week.weightDelta} кг, доказательств ${week.proofCount}.`
     )),
     '',
@@ -869,8 +932,8 @@ function buildExport(state, stats, weeks) {
     '## Дни',
     ...closed.map((day) => (
       isLife
-        ? `- День ${day.day} (${day.date}): ${TIERS[day.result]?.title || day.result}, очки ${day.xp}, привычки: ${state.habits.map((habit) => `${habit.name}: ${getHabitValue(day, habit.id) === true ? 'да' : getHabitValue(day, habit.id) === false ? 'нет' : '-'}`).join(', ')}, чтение ${day.readingMinutes || 0} мин, ккал ${day.calories}, активные ккал ${day.activeCalories || 0}, шаги ${day.steps || 0}, вес ${day.weight} кг, артефакт: ${day.artifactText || '-'}, победа испытательного срока: ${day.workWinType || '-'} ${day.workWinText || ''}, новый шаг: ${day.actionText}, где не справился и почему: ${day.summary || '-'}`
-        : `- День ${day.day} (${day.date}): ${TIERS[day.result]?.title || day.result}, очки ${day.xp}, 1С/рынок ${day.workMinutes} мин, ккал ${day.calories}, активные ккал ${day.activeCalories || 0}, шаги ${day.steps || 0}, вес ${day.weight} кг, артефакт: ${day.artifactText || '-'}, доказательства: ${(day.proofs || []).join(', ') || '-'}, действие: ${day.actionText}, итог: ${day.summary || '-'}`
+        ? `- День ${day.day} (${day.date}): ${TIERS[day.result]?.title || day.result}, очки ${day.xp}, привычки: ${state.habits.map((habit) => `${habit.name}: ${getHabitValue(day, habit.id) === true ? 'да' : getHabitValue(day, habit.id) === false ? 'нет' : '-'}`).join(', ')}, чтение ${day.readingMinutes || 0} мин, ккал ${day.calories}, активные ккал ${day.activeCalories || 0}, шаги ${day.steps || 0}, вес ${day.weight} кг, победа дня: ${day.dailyWinText || '-'}, тревога: ${(day.anxietySituations || []).map((item) => `${item.situation} (${item.before}/${item.peak}/${item.after})`).join('; ') || 'ситуаций не было'}`
+        : `- День ${day.day} (${day.date}): ${TIERS[day.result]?.title || day.result}, очки ${day.xp}, 1С/рынок ${day.workMinutes} мин, ккал ${day.calories}, активные ккал ${day.activeCalories || 0}, шаги ${day.steps || 0}, вес ${day.weight} кг, доказательства: ${(day.proofs || []).join(', ') || '-'}, действие: ${day.actionText}, победа дня: ${day.dailyWinText || '-'}`
     )),
     '',
     '## Финал 120',
@@ -912,8 +975,9 @@ function getDiagnosis(stats, week, scenario = 'career') {
     else items.push('Чтение пока не встроилось в ритм. Самый простой рычаг - постоянное место и короткий минимум в 10 минут.');
     if (stats.avgEnergyBalance < 0) items.push(`Средний дефицит ${Math.abs(stats.avgEnergyBalance)} ккал. При таком темпе вес должен двигаться вниз, если отметки полные.`);
     else if (stats.energyBalances.length) items.push(`Средний профицит ${stats.avgEnergyBalance} ккал. Для цели 65 кг расход пока не перекрывает питание.`);
-    if (stats.workWins.length) items.push(`Зафиксировано ${stats.workWins.length} побед испытательного срока. Они показывают профессиональное закрепление, а не только занятость.`);
-    else items.push('Побед испытательного срока пока нет в данных. Записывай только конкретные рабочие факты, даже небольшие.');
+    if (stats.dailyWins.length) items.push(`Зафиксировано ${stats.dailyWins.length} побед дня. Это конкретные доказательства изменения, а не оценка настроения.`);
+    else items.push('Побед дня пока нет в данных. Записывай один конкретный факт роста, даже небольшой.');
+    if (stats.anxietyEvents.length) items.push(`Зафиксировано ${stats.anxietyEvents.length} тревожных ситуаций: средний пик ${stats.anxietyPeak}, после ${stats.anxietyAfter}.`);
   } else {
   const avgWork = stats.workMinutes / Math.max(1, stats.closedDays.length);
   if (avgWork >= 75) items.push('1С/рынок получают сильное время. Это главный двигатель оффера.');
@@ -1223,8 +1287,8 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#eef7f9] text-slate-900">
-      <div className="pointer-events-none fixed inset-0 bg-[linear-gradient(90deg,rgba(59,130,246,0.06)_1px,transparent_1px),linear-gradient(rgba(20,83,45,0.05)_1px,transparent_1px)] bg-[size:44px_44px]" />
+    <div className="min-h-screen overflow-x-hidden bg-[#f3f8fc] text-slate-900">
+      <div className="pointer-events-none fixed inset-0 bg-[linear-gradient(90deg,rgba(13,126,165,0.045)_1px,transparent_1px),linear-gradient(rgba(239,106,76,0.035)_1px,transparent_1px)] bg-[size:48px_48px]" />
       <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
         <Header
           user={user}
@@ -1281,8 +1345,7 @@ function App() {
           </>
         ) : (
           <>
-            <Dashboard scenario={scenario} days={state.days} stats={stats} currentWeek={currentWeek} weeks={weeks} habits={state.habits} profile={state.profile} range={statsRange} onRangeChange={setStatsRange} onProfileChange={updateProfile} />
-            <Checkpoints scenario={scenario} days={state.days} currentDayIndex={currentDayIndex} habits={state.habits} profile={state.profile} />
+            <ModernDashboard scenario={scenario} days={state.days} stats={stats} currentWeek={currentWeek} weeks={weeks} habits={state.habits} profile={state.profile} range={statsRange} onRangeChange={setStatsRange} onProfileChange={updateProfile} />
           </>
         )}
       </div>
@@ -1403,10 +1466,10 @@ function StartScreen({ user, onStart, onLogOut }) {
           <div className="grid gap-3">
             {selectedScenario === 'life' ? (
               <>
-                <StartMetric icon={<WineOff size={20} />} title="Ясность" text="Алкоголь уходит полностью, а каждый день даёт честное доказательство курса." />
-                <StartMetric icon={<CandyOff size={20} />} title="Без сладкого вкуса" text="Не только сладости, но и привычка искать сладкий вкус перестаёт управлять выбором." />
-                <StartMetric icon={<Utensils size={20} />} title="Форма и 65 кг" text="1800 как топ, 2300 как предел, вес и питание видны на графиках." />
-                <StartMetric icon={<BookOpen size={20} />} title="Жизнь шире работы" text="Чтение и новые действия показывают, что меняется не только вес, но и сама жизнь." />
+                <StartMetric icon={<Target size={20} />} title="Ценность в ЯвКонтуре" text="Каждый день оставляет доказательство, что ты становишься полезнее как специалист." />
+                <StartMetric icon={<Utensils size={20} />} title="Форма и 65 кг" text="Питание, расход, дефицит и прогноз веса считаются автоматически." />
+                <StartMetric icon={<Brain size={20} />} title="Спокойное проявление" text="Конкретные тревожные ситуации показывают, где ты действуешь, оставаясь собой." />
+                <StartMetric icon={<Medal size={20} />} title="Победы дня" text="Один факт ежедневно собирает доказательства новой версии тебя." />
               </>
             ) : (
               <>
@@ -1472,7 +1535,9 @@ function Header({
 }) {
   const syncText = syncState === 'saving' ? 'сохраняю' : syncState === 'offline' ? 'офлайн' : 'синхронно';
   return (
-    <header className="border border-[#b9d7dd] bg-white/92 p-4 shadow-sm backdrop-blur rounded-lg">
+    <header className="relative min-h-[230px] overflow-hidden border border-[#8ec9df] bg-[#eef9ff] shadow-md rounded-lg" style={{ backgroundImage: `url(${transformationBanner})`, backgroundPosition: 'calc(50% + 180px) center', backgroundSize: 'cover' }}>
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(247,252,255,0.98)_0%,rgba(247,252,255,0.93)_42%,rgba(247,252,255,0.46)_72%,rgba(247,252,255,0.16)_100%)]" />
+      <div className="relative p-5 sm:p-6">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-2 text-sm font-semibold text-[#5c7955]">
@@ -1488,15 +1553,15 @@ function Header({
             {SCENARIOS[scenario].header}
           </h1>
           {scenario === 'life' && (
-            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-black text-[#247184]">
-              <span>Новая личность</span><span className="text-[#8bb7c0]">·</span>
-              <span>65 кг и выраженный пресс</span><span className="text-[#8bb7c0]">·</span>
-              <span>Испытательный срок пройден</span>
+            <div className="mt-3 flex max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 text-sm font-black text-[#0c6685]">
+              <span>Стать ценным специалистом в ЯвКонтуре</span><span className="text-[#62acc4]">·</span>
+              <span>65 кг и выраженный пресс</span><span className="text-[#62acc4]">·</span>
+              <span>Быть собой и спокойно проявляться</span>
             </div>
           )}
         </div>
 
-        <div className="flex flex-col gap-3 xl:items-end">
+        <div className="flex flex-col gap-3 xl:mt-20 xl:items-end">
           <div className="flex flex-wrap items-center gap-2 xl:justify-end">
             <HeaderPill icon={<User size={16} />} label="Аккаунт" value={user.email || 'user'} />
             <IconButton onClick={onExport} icon={<Download size={16} />} label="Экспорт" tone="plain" compact />
@@ -1509,8 +1574,9 @@ function Header({
           </div>
         </div>
       </div>
-      <div className="mt-4 h-3 overflow-hidden bg-[#e6f0f2] rounded-md">
-        <div className="h-full bg-[#19a7b8] transition-all duration-700" style={{ width: `${stats.levelProgress}%` }} />
+      <div className="mt-5 h-3 overflow-hidden border border-white/70 bg-white/75 shadow-inner rounded-md">
+        <div className="h-full bg-[#0d8fb9] transition-all duration-700" style={{ width: `${stats.levelProgress}%` }} />
+      </div>
       </div>
     </header>
   );
@@ -1663,62 +1729,21 @@ function TodayPanel({
         </div>
 
         {isLife && (
-          <>
-            <NumberField icon={<BookOpen size={18} />} label="Чтение, минуты" value={day.readingMinutes} disabled={!editable} min="0" onChange={(value) => onChange({ ...day, readingMinutes: value })} />
-            <ProofPicker
-              label="Что сегодня оживило день?"
-              proofTypes={LIFE_PROOF_TYPES}
-              value={day.proofs || []}
-              disabled={!editable}
-              onChange={(proofs) => onChange({ ...day, proofs })}
-            />
-            <TextField
-              icon={<Zap size={18} />}
-              label="Какой шаг сегодня сделал жизнь другой?"
-              value={day.actionText}
-              disabled={!editable}
-              placeholder="Например: прочитал главу, прошёлся без телефона, разобрал дела, позвонил близкому"
-              onChange={(value) => onChange({ ...day, actionText: value })}
-            />
-          </>
+          <NumberField icon={<BookOpen size={18} />} label="Чтение, минуты" value={day.readingMinutes} disabled={!editable} min="0" onChange={(value) => onChange({ ...day, readingMinutes: value })} />
         )}
 
-        <div className="grid gap-3 lg:grid-cols-2">
-          <TextField
-            icon={<PackageCheck size={18} />}
-            label="Артефакт дня"
-            value={day.artifactText}
-            disabled={!editable}
-            placeholder="Что осталось после дня: результат, документ, решение, заметка, фотография"
-            onChange={(value) => onChange({ ...day, artifactText: value })}
-          />
-          <div className="grid gap-3">
-            <SelectField
-              icon={<BriefcaseBusiness size={18} />}
-              label="Победа испытательного срока"
-              value={day.workWinType}
-              disabled={!editable}
-              options={WORK_WIN_TYPES}
-              onChange={(value) => onChange({ ...day, workWinType: value })}
-            />
-            <TextField
-              icon={<Trophy size={18} />}
-              label="Что именно получилось на работе?"
-              value={day.workWinText}
-              disabled={!editable}
-              placeholder="Короткий факт. Можно оставить пустым, если сегодня без отдельной победы."
-              onChange={(value) => onChange({ ...day, workWinText: value })}
-            />
-          </div>
-        </div>
-
-        <TextField
-          icon={<FileText size={18} />}
-          label={isLife ? 'Где не справился и почему?' : 'Что стало сильнее во мне или системе?'}
-          value={day.summary}
+        <AnxietyTracker
+          situations={day.anxietySituations || []}
           disabled={!editable}
-          placeholder={isLife ? 'Если всё получилось — так и напиши. Если нет — где и почему.' : 'Одна строка результата без лишней рефлексии'}
-          onChange={(value) => onChange({ ...day, summary: value })}
+          onChange={(anxietySituations) => onChange({ ...day, anxietySituations })}
+        />
+
+        <DailyWinField
+          category={day.dailyWinCategory || ''}
+          value={day.dailyWinText || ''}
+          disabled={!editable}
+          onCategoryChange={(dailyWinCategory) => onChange({ ...day, dailyWinCategory })}
+          onChange={(dailyWinText) => onChange({ ...day, dailyWinText })}
         />
       </div>
 
@@ -1759,6 +1784,129 @@ function TodayPanel({
           </button>
         </div>
       )}
+    </section>
+  );
+}
+
+function AnxietyTracker({ situations, disabled, onChange }) {
+  const updateSituation = (id, patch) => {
+    onChange(situations.map((item) => item.id === id ? { ...item, ...patch } : item));
+  };
+  const removeSituation = (id) => onChange(situations.filter((item) => item.id !== id));
+  return (
+    <section className="border border-[#b8d8ee] bg-[#f4faff] p-4 rounded-lg">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 font-black text-[#124f73]"><Brain size={19} />Тревожные ситуации</div>
+          <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
+            Ситуаций не было — ничего не добавляй. Появилась — зафиксируй конкретный момент.
+          </p>
+        </div>
+        {!disabled && (
+          <button
+            type="button"
+            onClick={() => onChange([...situations, createAnxietySituation()])}
+            className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-2 bg-[#0d7ea5] px-4 py-2 font-black text-white shadow-sm transition hover:bg-[#096b8e] rounded-md"
+          >
+            <Plus size={18} />Добавить ситуацию
+          </button>
+        )}
+      </div>
+
+      {situations.length === 0 ? (
+        <div className="mt-4 border border-dashed border-[#b8d8ee] bg-white/70 p-4 text-sm font-bold text-[#4b6b7e] rounded-md">
+          Сегодня пока нет зафиксированных ситуаций.
+        </div>
+      ) : (
+        <div className="mt-4 grid gap-3">
+          <AnimatePresence initial={false}>
+            {situations.map((item, index) => (
+              <motion.article
+                key={item.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, height: 0 }}
+                className="border border-[#b8d8ee] bg-white p-4 shadow-sm rounded-lg"
+              >
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div className="text-sm font-black text-[#0d6f91]">Ситуация {index + 1}</div>
+                  {!disabled && (
+                    <button type="button" onClick={() => removeSituation(item.id)} title="Удалить ситуацию" className="grid h-9 w-9 place-items-center border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100 rounded-md">
+                      <Trash2 size={17} />
+                    </button>
+                  )}
+                </div>
+                <div className="grid gap-3 lg:grid-cols-[0.72fr_1.28fr]">
+                  <label className="border border-[#d3e3ee] bg-[#f8fbff] p-3 rounded-md">
+                    <span className="mb-2 block text-xs font-bold text-slate-500">Контекст</span>
+                    <select value={item.category} disabled={disabled} onChange={(event) => updateSituation(item.id, { category: event.target.value })} className="w-full bg-transparent text-sm font-black text-slate-900 outline-none disabled:text-slate-500">
+                      {ANXIETY_CATEGORIES.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+                    </select>
+                  </label>
+                  <label className="border border-[#d3e3ee] bg-[#f8fbff] p-3 rounded-md">
+                    <span className="mb-2 block text-xs font-bold text-slate-500">Что произошло?</span>
+                    <input value={item.situation} disabled={disabled} onChange={(event) => updateSituation(item.id, { situation: event.target.value })} placeholder="Например: высказал своё мнение на созвоне" className="w-full bg-transparent text-sm font-bold text-slate-950 outline-none placeholder:text-slate-400 disabled:text-slate-500" />
+                  </label>
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <AnxietyScale label="Перед действием" value={item.before} disabled={disabled} color="#0d7ea5" onChange={(before) => updateSituation(item.id, { before })} />
+                  <AnxietyScale label="Пик во время" value={item.peak} disabled={disabled} color="#ef6a4c" onChange={(peak) => updateSituation(item.id, { peak })} />
+                  <AnxietyScale label="После ситуации" value={item.after} disabled={disabled} color="#16a36a" onChange={(after) => updateSituation(item.id, { after })} />
+                </div>
+                <label className="mt-3 block border border-[#d3e3ee] bg-[#f8fbff] p-3 rounded-md">
+                  <span className="mb-2 block text-xs font-bold text-slate-500">Что ты сделал, несмотря на тревогу?</span>
+                  <textarea value={item.action} disabled={disabled} onChange={(event) => updateSituation(item.id, { action: event.target.value })} placeholder="Конкретное действие и чем закончилась ситуация" className="h-20 w-full resize-none bg-transparent text-sm font-semibold leading-6 text-slate-950 outline-none placeholder:text-slate-400 disabled:text-slate-500" />
+                </label>
+              </motion.article>
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AnxietyScale({ label, value, disabled, color, onChange }) {
+  const displayValue = value === '' ? '—' : value;
+  return (
+    <label className="border border-[#d3e3ee] bg-[#f8fbff] p-3 rounded-md">
+      <span className="flex items-center justify-between gap-2 text-xs font-bold text-slate-500">
+        {label}
+        <strong className="text-xl text-slate-950">{displayValue}</strong>
+      </span>
+      <input
+        type="range"
+        min="0"
+        max="100"
+        step="5"
+        value={value === '' ? 50 : value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-3 h-2 w-full cursor-pointer disabled:cursor-not-allowed"
+        style={{ accentColor: color }}
+      />
+      <span className="mt-2 flex justify-between text-[10px] font-bold text-slate-400"><span>0 · спокойно</span><span>100 · максимум</span></span>
+    </label>
+  );
+}
+
+function DailyWinField({ category, value, disabled, onCategoryChange, onChange }) {
+  return (
+    <section className="border border-[#f4c76e] bg-[#fff8e8] p-4 shadow-sm rounded-lg">
+      <div className="mb-3 flex items-center gap-2 font-black text-[#8b5416]"><Medal size={20} />Победа дня</div>
+      <div className="grid gap-3 lg:grid-cols-[0.72fr_1.28fr]">
+        <label className="border border-[#efd59e] bg-white/80 p-3 rounded-md">
+          <span className="mb-2 block text-xs font-bold text-slate-500">Направление роста</span>
+          <select value={category} disabled={disabled} onChange={(event) => onCategoryChange(event.target.value)} className="w-full bg-transparent text-sm font-black text-slate-900 outline-none disabled:text-slate-500">
+            <option value="">Выбери направление</option>
+            {WIN_CATEGORIES.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+          </select>
+        </label>
+        <label className="border border-[#efd59e] bg-white/80 p-3 rounded-md">
+          <span className="mb-2 block text-xs font-bold text-slate-500">Какое действие сегодня доказало, что ты меняешься?</span>
+          <textarea value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} placeholder="Один конкретный факт — маленький или большой" className="h-20 w-full resize-none bg-transparent text-sm font-semibold leading-6 text-slate-950 outline-none placeholder:text-slate-400 disabled:text-slate-500" />
+        </label>
+      </div>
     </section>
   );
 }
@@ -1906,23 +2054,6 @@ function NumberField({ icon, label, value, onChange, disabled, min, step = '1' }
   );
 }
 
-function SelectField({ icon, label, value, onChange, disabled, options }) {
-  return (
-    <label className={`block border border-[#d5e3e5] p-3 rounded-lg ${disabled ? 'bg-[#f4f7f8]' : 'bg-white'}`}>
-      <span className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-600">{icon}{label}</span>
-      <select
-        value={value}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full border border-[#cbdde2] bg-white px-3 py-2 text-base font-bold text-slate-950 outline-none focus:border-[#40a7b8] disabled:bg-[#eef2f4] disabled:text-slate-500 rounded-md"
-      >
-        <option value="">Без отдельной победы</option>
-        {options.map((option) => <option key={option} value={option}>{option}</option>)}
-      </select>
-    </label>
-  );
-}
-
 function TextField({ icon, label, value, onChange, disabled, placeholder }) {
   return (
     <label className={`block border border-[#d5e3e5] p-3 rounded-lg ${disabled ? 'bg-[#f8fafc]' : 'bg-white'}`}>
@@ -1986,11 +2117,11 @@ function PathPanel({ days, scenario, activeDayIndex, currentDayIndex, onSelect, 
           <h2 className="text-2xl font-black text-slate-950">{isLife ? 'Новая норма видна на дистанции' : 'Рост видно на дистанции'}</h2>
         </div>
         <div className="grid grid-cols-5 gap-1 text-center">
-          <MiniStat label="Плохо" value={stats.tierCounts.bad || 0} />
-          <MiniStat label="Слабо" value={stats.tierCounts.weak || 0} />
-          <MiniStat label="Обыч" value={stats.tierCounts.base || 0} />
-          <MiniStat label="Сила" value={stats.tierCounts.growth || 0} />
-          <MiniStat label="Идеал" value={stats.tierCounts.breakthrough || 0} />
+          <MiniStat label="Возврат" value={stats.tierCounts.bad || 0} />
+          <MiniStat label="Минимум" value={stats.tierCounts.weak || 0} />
+          <MiniStat label="Опора" value={stats.tierCounts.base || 0} />
+          <MiniStat label="Рост" value={stats.tierCounts.growth || 0} />
+          <MiniStat label="Прорыв" value={stats.tierCounts.breakthrough || 0} />
         </div>
       </div>
 
@@ -2040,7 +2171,7 @@ function PathPanel({ days, scenario, activeDayIndex, currentDayIndex, onSelect, 
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
         <PathInsight icon={<Flame size={18} />} label={isLife ? 'Чистая серия' : 'Серия'} value={`${isLife ? stats.cleanStreak : stats.streak} дн`} />
-        <PathInsight icon={<FileText size={18} />} label={isLife ? 'Живые действия' : 'Доказательства'} value={stats.proofCount} />
+        <PathInsight icon={<Medal size={18} />} label={isLife ? 'Победы дня' : 'Доказательства'} value={isLife ? stats.dailyWins.length : stats.proofCount} />
         <PathInsight icon={<CalendarDays size={18} />} label="Закрытие пути" value={`${stats.completionRate}%`} />
       </div>
 
@@ -2074,7 +2205,282 @@ function PathInsight({ icon, label, value }) {
   );
 }
 
-function Dashboard({ days, stats, currentWeek, weeks, scenario, habits, profile, range, onRangeChange, onProfileChange }) {
+const STAT_METRICS = [
+  { id: 'energy', label: 'Энергия', icon: Gauge },
+  { id: 'weight', label: 'Вес и прогноз', icon: Scale },
+  { id: 'anxiety', label: 'Тревожные ситуации', icon: Brain },
+  { id: 'activity', label: 'Шаги и активность', icon: Footprints },
+  { id: 'habits', label: 'Привычки', icon: CheckCircle2 },
+  { id: 'reading', label: 'Чтение', icon: BookOpen },
+  { id: 'wins', label: 'Победы дня', icon: Medal },
+  { id: 'journey', label: 'Весь путь', icon: Target },
+];
+
+function ModernDashboard(props) {
+  const { days, stats, currentWeek, weeks, scenario, habits, profile, range, onRangeChange, onProfileChange } = props;
+  const [showFilters, setShowFilters] = useState(false);
+  const [visibleMetrics, setVisibleMetrics] = useState(['energy']);
+  if (scenario !== 'life') return <LegacyDashboard {...props} />;
+  const rangeSize = range === 'all' ? TOTAL_DAYS : Number(range);
+  const lastElapsedDay = stats.elapsedDays.length;
+  const firstVisibleDay = Math.max(1, lastElapsedDay - rangeSize + 1);
+  const visibleDays = days.filter((day) => day.day >= firstVisibleDay && day.day <= lastElapsedDay);
+  const periodStats = calculateStats(visibleDays, Math.max(0, visibleDays.length - 1), habits, profile);
+  const visibleRecordedDays = visibleDays.filter((day) => day.result || day.draftSavedAt);
+  const hasMetric = (id) => visibleMetrics.includes(id);
+  const toggleMetric = (id) => setVisibleMetrics((current) => (
+    current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+  ));
+  const diagnosis = getDiagnosis(stats, currentWeek, scenario);
+  return (
+    <section className="grid gap-4">
+      <div className="border border-[#b8d8ee] bg-white p-4 shadow-sm rounded-lg">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-black text-[#0d7ea5]"><BarChart3 size={18} />Центр прогресса</div>
+            <h2 className="mt-1 text-2xl font-black text-[#102a43]">Вся траектория — без информационного шума</h2>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <StatsRangeControl value={range} onChange={onRangeChange} />
+            <button type="button" onClick={() => setShowFilters((value) => !value)} className={`inline-flex min-h-[46px] items-center justify-center gap-2 border px-4 font-black transition rounded-md ${showFilters ? 'border-[#0d7ea5] bg-[#0d7ea5] text-white' : 'border-[#b8d8ee] bg-[#f4faff] text-[#124f73] hover:bg-[#e9f6ff]'}`}>
+              <Filter size={18} />Показатели {showFilters ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+          </div>
+        </div>
+        <AnimatePresence initial={false}>
+          {showFilters && (
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+              <div className="mt-4 grid gap-2 border-t border-[#dce9f2] pt-4 sm:grid-cols-2 lg:grid-cols-4">
+                {STAT_METRICS.map((metric) => {
+                  const Icon = metric.icon;
+                  const active = hasMetric(metric.id);
+                  return (
+                    <label key={metric.id} className={`flex cursor-pointer items-center gap-3 border p-3 transition rounded-md ${active ? 'border-[#57b8d6] bg-[#e9f8ff] text-[#0c6685]' : 'border-[#dce6ed] bg-white text-slate-600 hover:bg-[#f7fbff]'}`}>
+                      <input type="checkbox" checked={active} onChange={() => toggleMetric(metric.id)} className="sr-only" />
+                      <span className={`grid h-9 w-9 place-items-center rounded-md ${active ? 'bg-[#0d7ea5] text-white' : 'bg-[#edf3f7] text-slate-500'}`}><Icon size={18} /></span>
+                      <span className="text-sm font-black">{metric.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      <GoalPulse stats={stats} profile={profile} currentDayNumber={lastElapsedDay} />
+
+      {hasMetric('energy') && <EnergyOverview stats={periodStats} days={visibleRecordedDays} profile={profile} />}
+      {hasMetric('weight') && (
+        <div className="grid gap-4">
+          <WeightForecast stats={stats} profile={profile} currentDayNumber={lastElapsedDay} />
+          <ChartCard icon={<LineChart size={18} />} title="Вес по дням" subtitle={`${periodStats.firstWeight || '--'} → ${periodStats.lastWeight || '--'} кг`} aside={<span className="text-sm font-black text-[#0d7ea5]">цель {profile.targetWeight} кг</span>}>
+            <LineChartSvg data={stats.weights.filter((item) => item.day >= firstVisibleDay)} color="#0d7ea5" fill="#dff4ff" unit="кг" targetValue={num(profile.targetWeight)} targetLabel={`${profile.targetWeight} кг`} />
+          </ChartCard>
+        </div>
+      )}
+      {hasMetric('anxiety') && <AnxietyStatsPanel stats={periodStats} />}
+      {hasMetric('activity') && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <ChartCard icon={<BatteryCharging size={18} />} title="Активные калории" subtitle={`среднее ${periodStats.avgActiveCalories} ккал`} aside={<span className="text-sm font-black text-[#0d7ea5]">за выбранный период</span>}>
+            <LineChartSvg data={periodStats.activityCalories} color="#0d7ea5" fill="#dff4ff" unit="ккал" />
+          </ChartCard>
+          <ChartCard icon={<Footprints size={18} />} title="Шаги" subtitle={`среднее ${periodStats.avgSteps.toLocaleString('ru-RU')}`} aside={<span className="text-sm font-black text-[#16865f]">цель 8 000+</span>}>
+            <LineChartSvg data={periodStats.steps} color="#16a36a" fill="#e1f8ee" unit="шагов" guideValues={[8000]} />
+          </ChartCard>
+        </div>
+      )}
+      {hasMetric('habits') && (
+        <ChartCard icon={<CheckCircle2 size={18} />} title="Привычки" subtitle={`${periodStats.cleanStreak} дней текущей серии`} aside={<span className="text-sm font-black text-[#0d7ea5]">{habits.filter((habit) => habit.active !== false).length} активных</span>}>
+          <HabitMatrix days={visibleDays} habits={habits} />
+        </ChartCard>
+      )}
+      {hasMetric('reading') && (
+        <ChartCard icon={<BookOpen size={18} />} title="Чтение" subtitle={`${(periodStats.readingMinutes / 60).toFixed(1)} ч за период`} aside={<span className="text-sm font-black text-[#16865f]">{periodStats.readingDays} дней</span>}>
+          <ReadingProgress days={visibleRecordedDays} />
+        </ChartCard>
+      )}
+      {hasMetric('wins') && <VictoryStatsPanel wins={periodStats.dailyWins} />}
+      {hasMetric('journey') && (
+        <div className="grid gap-4 xl:grid-cols-2">
+          <ResultCounters stats={stats} scenario={scenario} />
+          <WeeklyPanel week={currentWeek} scenario={scenario} />
+          <ProfileSettings profile={profile} onChange={onProfileChange} />
+          <DiagnosisPanel items={diagnosis} />
+          <div className="xl:col-span-2"><WeeksStrip weeks={weeks} /></div>
+          <div className="xl:col-span-2"><Checkpoints scenario={scenario} days={days} currentDayIndex={lastElapsedDay - 1} habits={habits} profile={profile} /></div>
+        </div>
+      )}
+      {visibleMetrics.length === 0 && (
+        <div className="border border-dashed border-[#a9cfe3] bg-white p-8 text-center rounded-lg">
+          <div className="font-black text-[#124f73]">Выбери показатели</div>
+          <p className="mt-2 text-sm font-semibold text-slate-500">Кнопка «Показатели» возвращает любой график в один клик.</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function GoalPulse({ stats, profile, currentDayNumber }) {
+  const currentWeight = stats.lastWeight;
+  const remaining = currentWeight ? Math.max(0, currentWeight - num(profile.targetWeight)) : null;
+  return (
+    <section className="grid gap-2 border border-[#155f83] bg-[#102f4a] p-4 text-white shadow-md rounded-lg sm:grid-cols-2 xl:grid-cols-4">
+      <PulseMetric label="До финала" value={`${Math.max(0, TOTAL_DAYS - currentDayNumber)} дней`} accent="#64d8ff" />
+      <PulseMetric label="Вес сейчас" value={currentWeight ? `${currentWeight} кг` : 'Нет отметки'} accent="#7cf0bf" />
+      <PulseMetric label="До 65 кг" value={remaining === null ? 'Нужен вес' : `${remaining.toFixed(1)} кг`} accent="#ffcb6b" />
+      <PulseMetric label="Доказательств роста" value={`${stats.dailyWins.length}`} accent="#ff8b7b" />
+    </section>
+  );
+}
+
+function PulseMetric({ label, value, accent }) {
+  return (
+    <div className="border-l-4 px-3 py-2" style={{ borderColor: accent }}>
+      <div className="text-xs font-bold text-sky-100">{label}</div>
+      <div className="mt-1 text-xl font-black">{value}</div>
+    </div>
+  );
+}
+
+function EnergyOverview({ stats, days, profile }) {
+  const calorieData = days.map((day) => ({ day: day.day, value: num(day.calories) })).filter((item) => item.value);
+  const activeData = days.map((day) => ({ day: day.day, value: num(day.activeCalories) })).filter((item) => item.value || item.value === 0);
+  return (
+    <section className="grid gap-4">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryMetric label="Суммарный дефицит" value={`${stats.totalDeficit.toLocaleString('ru-RU')} ккал`} tone="green" />
+        <SummaryMetric label="Итог периода" value={`${stats.totalEnergyBalance > 0 ? '+' : ''}${stats.totalEnergyBalance.toLocaleString('ru-RU')} ккал`} tone={stats.totalEnergyBalance <= 0 ? 'blue' : 'coral'} />
+        <SummaryMetric label="Средний итог дня" value={`${stats.avgEnergyBalance > 0 ? '+' : ''}${stats.avgEnergyBalance} ккал`} tone="blue" />
+        <SummaryMetric label="Дней в дефиците" value={`${stats.deficitDays} из ${stats.energyBalances.length}`} tone="amber" />
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ChartCard icon={<Utensils size={18} />} title="Съеденные калории" subtitle={`среднее ${stats.avgCalories || '--'} ккал`} aside={<span className="text-sm font-black text-[#a55817]">1800 / 2300</span>}>
+          <LineChartSvg data={calorieData} color="#f0783c" fill="#fff0e7" unit="ккал" guideValues={[CALORIE_TOP, CALORIE_LIMIT]} />
+        </ChartCard>
+        <ChartCard icon={<BatteryCharging size={18} />} title="Активные калории" subtitle={`среднее ${stats.avgActiveCalories} ккал`} aside={<span className="text-sm font-black text-[#0d7ea5]">без базового обмена</span>}>
+          <LineChartSvg data={activeData} color="#0d7ea5" fill="#dff4ff" unit="ккал" />
+        </ChartCard>
+        <div className="lg:col-span-2">
+          <ChartCard icon={<Gauge size={18} />} title="Энергетический итог по дням" subtitle={formatEnergyBalance(stats.avgEnergyBalance)} aside={<span className="text-sm font-black text-[#0d7ea5]">базовый обмен {stats.currentBmr || '--'}</span>}>
+            <BalanceBars data={stats.energyBalances} />
+          </ChartCard>
+        </div>
+      </div>
+      <details className="border border-[#cbdde8] bg-white shadow-sm rounded-lg">
+        <summary className="flex cursor-pointer items-center justify-between gap-3 p-4 font-black text-[#163b54]">Данные по дням <ChevronDown size={18} /></summary>
+        <DailyEnergyTable days={days} profile={profile} />
+      </details>
+    </section>
+  );
+}
+
+function SummaryMetric({ label, value, tone }) {
+  const tones = {
+    green: 'border-[#8de0b5] bg-[#e9fbf2] text-[#106a44]',
+    blue: 'border-[#9ed9ef] bg-[#e9f8ff] text-[#0c6685]',
+    coral: 'border-[#f3b2a5] bg-[#fff0ed] text-[#a84435]',
+    amber: 'border-[#f3d18e] bg-[#fff8e8] text-[#8b5416]',
+  };
+  return <div className={`border p-4 rounded-lg ${tones[tone]}`}><div className="text-xs font-bold">{label}</div><div className="mt-1 text-2xl font-black">{value}</div></div>;
+}
+
+function DailyEnergyTable({ days, profile }) {
+  const rows = [...days].reverse();
+  return (
+    <div className="overflow-x-auto border-t border-[#dce6ed]">
+      <table className="w-full min-w-[720px] text-left text-sm">
+        <thead className="bg-[#f4f8fb] text-xs uppercase text-slate-500"><tr><th className="p-3">День</th><th className="p-3">Съедено</th><th className="p-3">Активные</th><th className="p-3">Базовый обмен</th><th className="p-3">Общий расход</th><th className="p-3">Итог</th></tr></thead>
+        <tbody>
+          {rows.map((day) => {
+            const bmr = calculateBmr(day.weight, profile);
+            const balance = calculateEnergyBalance(day, profile);
+            return (
+              <tr key={day.day} className="border-t border-[#e7eef3] font-semibold text-slate-700">
+                <td className="p-3 font-black text-slate-950">{day.day} · {formatDate(day.date)}</td><td className="p-3">{day.calories || '—'}</td><td className="p-3">{day.activeCalories === '' ? '—' : day.activeCalories}</td><td className="p-3">{bmr || '—'}</td><td className="p-3">{bmr ? bmr + num(day.activeCalories) : '—'}</td><td className={`p-3 font-black ${balance !== null && balance < 0 ? 'text-emerald-700' : 'text-rose-600'}`}>{formatEnergyBalance(balance)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AnxietyStatsPanel({ stats }) {
+  const trend = stats.anxietyTrend;
+  const trendText = trend === null ? 'Нужно минимум 2 ситуации' : trend > 5 ? `Пик выше на ${trend}` : trend < -5 ? `Пик ниже на ${Math.abs(trend)}` : 'Пик примерно стабилен';
+  return (
+    <section className="grid gap-4">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryMetric label="Ситуаций" value={stats.anxietyEvents.length} tone="blue" />
+        <SummaryMetric label="Среднее до" value={stats.anxietyEvents.length ? stats.anxietyBefore : '—'} tone="amber" />
+        <SummaryMetric label="Средний пик" value={stats.anxietyEvents.length ? stats.anxietyPeak : '—'} tone="coral" />
+        <SummaryMetric label="Среднее после" value={stats.anxietyEvents.length ? stats.anxietyAfter : '—'} tone="green" />
+      </div>
+      <ChartCard icon={<Brain size={18} />} title="Тревога в конкретных ситуациях" subtitle={trendText} aside={<span className="text-sm font-black text-[#0d7ea5]">до · пик · после</span>}>
+        <AnxietyChart data={stats.anxietyEvents} />
+      </ChartCard>
+      <details className="border border-[#cbdde8] bg-white shadow-sm rounded-lg">
+        <summary className="flex cursor-pointer items-center justify-between gap-3 p-4 font-black text-[#163b54]">Все ситуации за период <ChevronDown size={18} /></summary>
+        <div className="grid gap-2 border-t border-[#dce6ed] p-4">
+          {[...stats.anxietyEvents].reverse().map((item) => (
+            <div key={`${item.day}-${item.id}`} className="border border-[#dce6ed] bg-[#f8fbfd] p-3 rounded-md">
+              <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs font-black text-[#0d7ea5]">День {item.day} · {ANXIETY_CATEGORIES.find((option) => option.id === item.category)?.label || 'Другое'}</span><span className="text-xs font-black text-slate-500">{item.before} → {item.peak} → {item.after}</span></div>
+              <div className="mt-1 font-bold text-slate-900">{item.situation}</div><div className="mt-1 text-sm font-semibold text-slate-600">{item.action}</div>
+            </div>
+          ))}
+          {!stats.anxietyEvents.length && <div className="p-4 text-center text-sm font-bold text-slate-500">Пока нет зафиксированных ситуаций.</div>}
+        </div>
+      </details>
+    </section>
+  );
+}
+
+function AnxietyChart({ data }) {
+  if (!data.length) return <EmptyChart text="Добавь первую конкретную ситуацию" />;
+  const visible = data.slice(-30);
+  const width = 720;
+  const height = 230;
+  const left = 38;
+  const right = 14;
+  const top = 18;
+  const bottom = 34;
+  const xFor = (index) => left + (index / Math.max(1, visible.length - 1)) * (width - left - right);
+  const yFor = (value) => top + ((100 - num(value)) / 100) * (height - top - bottom);
+  const points = (key) => visible.map((item, index) => `${xFor(index)},${yFor(item[key])}`).join(' ');
+  const lines = [
+    { key: 'before', label: 'До', color: '#0d7ea5' },
+    { key: 'peak', label: 'Пик', color: '#ef6a4c' },
+    { key: 'after', label: 'После', color: '#16a36a' },
+  ];
+  return (
+    <div className="overflow-x-auto">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-[250px] min-w-[620px] w-full">
+        {[0, 25, 50, 75, 100].map((value) => <g key={value}><line x1={left} y1={yFor(value)} x2={width - right} y2={yFor(value)} stroke="#dce6ed" /><text x="4" y={yFor(value) + 4} fontSize="11" fill="#64748b">{value}</text></g>)}
+        {lines.map((line) => <polyline key={line.key} points={points(line.key)} fill="none" stroke={line.color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />)}
+        {visible.map((item, index) => lines.map((line) => <circle key={`${item.id}-${line.key}`} cx={xFor(index)} cy={yFor(item[line.key])} r="4" fill="white" stroke={line.color} strokeWidth="3"><title>{`День ${item.day}: ${line.label} ${item[line.key]}`}</title></circle>))}
+        {visible.map((item, index) => <text key={`day-${item.id}`} x={xFor(index)} y={height - 10} textAnchor="middle" fontSize="10" fill="#64748b">{item.day}</text>)}
+      </svg>
+      <div className="flex justify-center gap-5 text-xs font-black text-slate-600">{lines.map((line) => <span key={line.key} className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: line.color }} />{line.label}</span>)}</div>
+    </div>
+  );
+}
+
+function VictoryStatsPanel({ wins }) {
+  const counts = WIN_CATEGORIES.map((category) => ({ ...category, count: wins.filter((day) => day.dailyWinCategory === category.id).length })).filter((item) => item.count);
+  return (
+    <section className="border border-[#f0cf8c] bg-[#fffaf0] p-4 shadow-sm rounded-lg">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex items-center gap-2 font-black text-[#8b5416]"><Medal size={19} />Победы дня</div><div className="mt-1 text-2xl font-black text-slate-950">{wins.length} доказательств роста</div></div><div className="flex flex-wrap gap-2">{counts.map((item) => <span key={item.id} className="border border-[#efd59e] bg-white px-3 py-2 text-xs font-black text-[#8b5416] rounded-md">{item.label}: {item.count}</span>)}</div></div>
+      <div className="mt-4 grid gap-2 md:grid-cols-2">
+        {[...wins].reverse().map((day) => <div key={day.day} className="border border-[#efd9ad] bg-white p-3 rounded-md"><div className="text-xs font-black text-[#a6631a]">День {day.day} · {WIN_CATEGORIES.find((item) => item.id === day.dailyWinCategory)?.label || 'Победа'}</div><div className="mt-1 text-sm font-semibold leading-6 text-slate-700">{day.dailyWinText}</div></div>)}
+        {!wins.length && <div className="border border-dashed border-[#efd59e] bg-white/70 p-4 text-sm font-bold text-slate-500 rounded-md">Первая победа появится после закрытия дня.</div>}
+      </div>
+    </section>
+  );
+}
+
+function LegacyDashboard({ days, stats, currentWeek, weeks, scenario, habits, profile, range, onRangeChange, onProfileChange }) {
   const isLife = scenario === 'life';
   const diagnosis = getDiagnosis(stats, currentWeek, scenario);
   const rangeSize = range === 'all' ? TOTAL_DAYS : Number(range);
@@ -2134,7 +2540,6 @@ function Dashboard({ days, stats, currentWeek, weeks, scenario, habits, profile,
       <div className="grid gap-4">
         <ResultCounters stats={stats} scenario={scenario} />
         <WeeklyPanel week={currentWeek} scenario={scenario} />
-        {isLife && <TrialWinsPanel wins={stats.workWins} artifacts={stats.artifacts} />}
         <ProfileSettings profile={profile} onChange={onProfileChange} />
         <DiagnosisPanel items={diagnosis} />
         <WeeksStrip weeks={weeks} />
@@ -2148,10 +2553,12 @@ function StatsRangeControl({ value, onChange }) {
   const options = [
     { id: '7', label: '7 дней' },
     { id: '30', label: '30 дней' },
+    { id: '180', label: '6 месяцев' },
+    { id: '365', label: '1 год' },
     { id: 'all', label: 'Весь путь' },
   ];
   return (
-    <div className="grid grid-cols-3 gap-1 border border-[#c6dce0] bg-[#eef6f8] p-1 rounded-md">
+    <div className="grid grid-cols-2 gap-1 border border-[#c6dce0] bg-[#eef6f8] p-1 rounded-md sm:grid-cols-5">
       {options.map((option) => (
         <button
           key={option.id}
@@ -2179,6 +2586,7 @@ function WeightForecast({ stats, profile, currentDayNumber }) {
   }
   const remainingKg = Math.max(0, currentWeight - targetWeight);
   const daysLeftInMarathon = Math.max(0, TOTAL_DAYS - currentDayNumber);
+  const energyWeightEquivalent = stats.energyBalances.length ? Number((Math.abs(stats.totalEnergyBalance) / 7700).toFixed(2)) : null;
   const plans = [
     { id: 'light', title: 'Лёгкий', deficit: 250, color: '#168b8f', bg: '#e6f9f8', border: '#9edddb' },
     { id: 'steady', title: 'Средний', deficit: 450, color: '#2474a6', bg: '#eaf5ff', border: '#add5ef' },
@@ -2206,6 +2614,7 @@ function WeightForecast({ stats, profile, currentDayNumber }) {
           <div className="flex items-center gap-2 text-sm font-black text-[#247184]"><Target size={18} />Автоматический прогноз формы</div>
           <h2 className="mt-1 text-3xl font-black text-slate-950">{currentWeight} → {targetWeight} кг</h2>
           <p className="mt-1 text-sm font-semibold text-slate-600">Осталось {remainingKg.toFixed(1)} кг · до конца марафона {daysLeftInMarathon} дней</p>
+          {energyWeightEquivalent !== null && <p className="mt-1 text-xs font-black text-[#0d7ea5]">Накопленный энергобаланс: {stats.totalEnergyBalance <= 0 ? 'расчётное снижение' : 'расчётный набор'} ≈ {energyWeightEquivalent} кг</p>}
         </div>
         <div className={`border px-4 py-3 text-sm font-black rounded-lg ${paceStatus.tone}`}>{paceStatus.text}</div>
       </div>
@@ -2253,30 +2662,6 @@ function CompactInput({ label, value, onChange, step = '1' }) {
   );
 }
 
-function TrialWinsPanel({ wins, artifacts }) {
-  const recentWins = wins.slice(-4).reverse();
-  return (
-    <section className="border border-[#9dd8e1] bg-[#eefafd] p-4 rounded-lg">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm font-black text-[#126879]"><BriefcaseBusiness size={17} />Испытательный срок</div>
-        <div className="text-sm font-black text-[#247184]">{wins.length} побед · {artifacts.length} артефактов</div>
-      </div>
-      {recentWins.length ? (
-        <div className="grid gap-2">
-          {recentWins.map((day) => (
-            <div key={day.day} className="border border-[#c6e2e7] bg-white p-3 rounded-md">
-              <div className="text-xs font-black text-[#247184]">День {day.day} · {day.workWinType || 'Победа'}</div>
-              <div className="mt-1 text-sm font-semibold leading-6 text-slate-700">{day.workWinText || day.artifactText}</div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="border border-dashed border-[#acd2da] bg-white/70 p-3 text-sm font-semibold text-slate-500 rounded-md">Здесь появятся конкретные доказательства того, что ты закрепляешься в работе.</div>
-      )}
-    </section>
-  );
-}
-
 function ResultCounters({ stats, scenario }) {
   const isLife = scenario === 'life';
   return (
@@ -2291,8 +2676,8 @@ function ResultCounters({ stats, scenario }) {
             <WeekMetric label="Чистая серия" value={`${stats.cleanStreak} дн`} />
             <WeekMetric label="Дни в дефиците" value={stats.deficitDays} />
             <WeekMetric label="Средние шаги" value={stats.avgSteps.toLocaleString('ru-RU')} />
-            <WeekMetric label="Рабочие победы" value={stats.workWins.length} />
-            <WeekMetric label="Артефакты" value={stats.artifacts.length} />
+            <WeekMetric label="Победы дня" value={stats.dailyWins.length} />
+            <WeekMetric label="Ситуации тревоги" value={stats.anxietyEvents.length} />
             <WeekMetric label="Пустые дни" value={stats.emptyDays} />
           </>
         ) : (
@@ -2525,7 +2910,7 @@ function WeeklyPanel({ week, scenario }) {
           <>
             <WeekMetric label="Средний энергобаланс" value={`${week.avgEnergyBalance > 0 ? '+' : ''}${week.avgEnergyBalance} ккал`} />
             <WeekMetric label="Шаги" value={week.steps.toLocaleString('ru-RU')} />
-            <WeekMetric label="Рабочие победы" value={week.workWins} />
+            <WeekMetric label="Победы дня" value={week.dailyWins} />
           </>
         ) : (
           <>
@@ -2549,7 +2934,7 @@ function WeeklyReflection({ week, review, scenario, required, onChange }) {
             <FileText size={16} />
             {required ? 'Обязательная фиксация недели' : 'Неделя закрыта'}
           </div>
-          <h2 className="text-2xl font-black text-slate-950">Неделя {week.number}: что реально произошло</h2>
+          <h2 className="text-2xl font-black text-slate-950">Неделя {week.number}: доказательства перемен</h2>
         </div>
         <div className="text-sm font-bold text-slate-500">Дни {week.from}-{week.to}</div>
       </div>
@@ -2559,9 +2944,9 @@ function WeeklyReflection({ week, review, scenario, required, onChange }) {
         </div>
       )}
       <div className="grid gap-3 lg:grid-cols-3">
-        <ReflectionField label="Что сработало?" value={review.worked} onChange={(value) => onChange({ worked: value })} placeholder={isLife ? 'Что помогало выбирать себя и удерживать новую норму?' : 'Что двигало форму, 1С или рынок?'} required={required} />
-        <ReflectionField label={isLife ? 'Где включился старый автопилот?' : 'Где просел?'} value={review.blocked} onChange={(value) => onChange({ blocked: value })} placeholder={isLife ? 'Какая ситуация вернула тягу, сладкое, переедание или пустой вечер?' : 'Калории, пустые дни, мало 1С, хаос?'} required={required} />
-        <ReflectionField label="Главный рычаг недели" value={review.nextLever} onChange={(value) => onChange({ nextLever: value })} placeholder={isLife ? 'Что упростит правильный выбор на следующей неделе?' : 'Один ход, который даст максимум.'} required={required} />
+        <ReflectionField label="Что стало сильнее?" value={review.worked} onChange={(value) => onChange({ worked: value })} placeholder={isLife ? 'Какие решения уже начинают становиться твоей нормой?' : 'Что двигало форму, 1С или рынок?'} required={required} />
+        <ReflectionField label="Где нужна опора?" value={review.blocked} onChange={(value) => onChange({ blocked: value })} placeholder={isLife ? 'В каких ситуациях следующий шаг пока требует больше внимания?' : 'Что стоит упростить или поддержать?'} required={required} />
+        <ReflectionField label="Что повторю на следующей неделе?" value={review.nextLever} onChange={(value) => onChange({ nextLever: value })} placeholder={isLife ? 'Одно действие, которое уже работает и должно повториться.' : 'Один ход, который даст максимум.'} required={required} />
       </div>
     </section>
   );
@@ -2660,7 +3045,7 @@ function Checkpoints({ days, currentDayIndex, scenario, habits, profile }) {
               <div className="text-2xl font-black text-slate-950">{summary.xp} очков</div>
               <div className="mt-2 text-sm font-semibold leading-6 text-slate-600">
                 {isLife
-                  ? `${summary.closed}/${summary.elapsed} дней · ${summary.workWins} рабочих побед · ${summary.steps.toLocaleString('ru-RU')} шагов`
+                  ? `${summary.closed}/${summary.elapsed} дней · ${summary.dailyWins} побед · ${summary.anxietyEvents} тревожных ситуаций`
                   : `${summary.closed}/${summary.elapsed} дней · ${(summary.workMinutes / 60).toFixed(1)} ч 1С`}
               </div>
             </div>
