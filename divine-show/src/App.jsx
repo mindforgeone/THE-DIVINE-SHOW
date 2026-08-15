@@ -5,9 +5,10 @@ import {
   AlertCircle,
   BarChart3,
   BatteryCharging,
+  BadgeCheck,
   Brain,
-  BookOpen,
   CalendarDays,
+  Camera,
   CandyOff,
   CheckCircle2,
   ChevronDown,
@@ -16,11 +17,13 @@ import {
   Cloud,
   Copy,
   Download,
+  Drama,
   Filter,
   FileText,
   Flame,
   Footprints,
   Gauge,
+  Heart,
   LineChart,
   Loader2,
   Lock,
@@ -29,10 +32,11 @@ import {
   Medal,
   Play,
   Plus,
-  RotateCcw,
+  Route,
   Save,
   Scale,
   Settings2,
+  ShieldCheck,
   Sparkles,
   Star,
   Target,
@@ -63,9 +67,10 @@ const DEFAULT_PROFILE = {
   targetWeight: 65,
 };
 const DEFAULT_HABITS = [
-  { id: 'alcohol', name: 'Без алкоголя', active: true, createdAt: null },
-  { id: 'sweet', name: 'Без сладкого вкуса', active: true, createdAt: null },
+  { id: 'alcohol', name: 'Алкоголь: 0', active: true, locked: true, createdAt: null },
+  { id: 'sweet', name: 'Сладкое: 0', active: true, locked: true, createdAt: null },
 ];
+const CORE_HABIT_IDS = ['alcohol', 'sweet'];
 const ANXIETY_CATEGORIES = [
   { id: 'work', label: 'Работа' },
   { id: 'communication', label: 'Общение' },
@@ -75,13 +80,43 @@ const ANXIETY_CATEGORIES = [
   { id: 'other', label: 'Другое' },
 ];
 const WIN_CATEGORIES = [
-  { id: 'work', label: 'Ценность на работе' },
+  { id: 'work', label: 'Ценность в Контуре' },
   { id: 'body', label: 'Тело и форма' },
+  { id: 'acting', label: 'Актёрское мастерство' },
+  { id: 'photo', label: 'Фотография' },
   { id: 'expression', label: 'Самовыражение' },
-  { id: 'discipline', label: 'Выбор и дисциплина' },
-  { id: 'relationships', label: 'Отношения' },
+  { id: 'discipline', label: 'Доверие к себе' },
   { id: 'other', label: 'Другое' },
 ];
+const GROWTH_CATEGORIES = [
+  { id: 'kontur', label: 'Контур', color: '#0d7ea5' },
+  { id: 'one-c', label: '1С и новый маршрут', color: '#6657c8' },
+  { id: 'body', label: 'Тело', color: '#16a36a' },
+  { id: 'acting', label: 'Актёрское мастерство', color: '#d75b7d' },
+  { id: 'photo', label: 'Фотография', color: '#d58125' },
+  { id: 'expression', label: 'Самовыражение', color: '#1b8f90' },
+  { id: 'self', label: 'Забота о себе', color: '#b65aa1' },
+  { id: 'other', label: 'Другое', color: '#64748b' },
+];
+const GROWTH_IMPACTS = [
+  { id: 'step', label: 'Шаг', xp: 10 },
+  { id: 'strong', label: 'Сильное', xp: 25 },
+  { id: 'breakthrough', label: 'Прорыв', xp: 50 },
+];
+const CAREER_DECISIONS = {
+  pending: {
+    title: 'Испытательный срок идёт',
+    description: 'Сейчас курс один: стать полезным специалистом в Контуре и собрать доказательства своей ценности.',
+  },
+  passed: {
+    title: 'Испытательный срок пройден',
+    description: 'Маршрут продолжается: закрепляться, брать больше ответственности и расти внутри Контура.',
+  },
+  not_passed: {
+    title: 'Маршрут изменён, путь продолжается',
+    description: 'Возвращение к 1С: системно усилить навыки, собрать мощный учёт результатов и выйти на новый уровень.',
+  },
+};
 
 const SCENARIOS = {
   career: {
@@ -94,11 +129,11 @@ const SCENARIOS = {
   },
   life: {
     id: 'life',
-    title: '120 дней сильных перемен',
-    shortTitle: 'Сильные перемены',
-    header: '120 дней: версия, которую видно',
-    description: '65 кг, ценность в ЯвКонтуре и спокойное самовыражение без игры в чужую уверенность.',
-    finish: 'Какие факты доказывают, что я изменил тело, закрепился в профессии и стал свободнее быть собой.',
+    title: '120 дней выбора себя',
+    shortTitle: 'Выбор себя',
+    header: '120 дней: я действую и выбираю себя',
+    description: 'Контур, 65 кг, актёрское мастерство, фотография и спокойное действие без самонаказания.',
+    finish: 'Какие факты доказывают, что я научился доверять себе, действовать свободнее и построил новую норму.',
   },
 };
 
@@ -184,18 +219,18 @@ const SIGNALS = [
 ];
 
 const LIFE_SIGNALS = [
-  { minXp: 1200, text: 'Новые решения уже повторяются. Это начинает быть не усилием, а твоим способом жить.' },
-  { minXp: 2800, text: 'Трезвость, питание и чтение складываются в устойчивый ритм. Новая норма уже видна.' },
+  { minXp: 1200, text: 'Новые решения уже повторяются. Ты не ждёшь уверенности, а создаёшь её действиями.' },
+  { minXp: 2800, text: 'Чистое питание, проявленность и действия роста складываются в устойчивый ритм.' },
   { minXp: 5200, text: 'Старые привычки теряют власть: дистанция подтверждает, что ты умеешь выбирать себя.' },
   { minXp: 9000, text: 'Это уже не временный режим. Ты построил жизнь, в которой форма и ясность поддерживают друг друга.' },
 ];
 
 const LIFE_TIER_DESCRIPTIONS = {
-  bad: 'День отмечен честно, но старые привычки сегодня получили слишком много места. Завтра нужен один ясный возврат к себе.',
-  weak: 'Часть курса удержана. Не обесценивай это, но посмотри, где именно решение ушло на автопилот.',
-  base: 'Обычный устойчивый день: новая жизнь держится на нескольких правильных выборах без надрыва.',
-  growth: 'Сильный день: питание, ясность и личное действие заметно укрепили новую норму.',
-  breakthrough: 'Идеальный день: питание, активность, все выбранные привычки и осмысленное действие сошлись в один курс.',
+  bad: 'Правило нарушено, но ценность человека не нарушается. Фиксируем честно и возвращаемся к выбранному курсу следующим действием.',
+  weak: 'Факты дня собраны. Курс не идеален, но честность уже возвращает управление тебе.',
+  base: 'Нерушимые правила удержаны. Это не наказание, а спокойное подтверждение собственного выбора.',
+  growth: 'Правила удержаны и появилось конкретное действие роста. Доверие к себе стало сильнее на один факт.',
+  breakthrough: 'Ты не только удержал курс, но и расширил границы сильным действием. Именно так меняется способ жить.',
 };
 
 const todayKey = () => toDateKey(new Date());
@@ -287,6 +322,20 @@ function createAnxietySituation() {
   };
 }
 
+function createGrowthAction() {
+  return {
+    id: `growth-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    category: 'kontur',
+    impact: 'step',
+    text: '',
+    outcome: '',
+  };
+}
+
+function isGrowthActionComplete(item) {
+  return Boolean(item?.category && item?.impact && item?.text?.trim().length >= 3);
+}
+
 function isAnxietySituationComplete(item) {
   return Boolean(
     item?.situation?.trim().length >= 3
@@ -317,7 +366,9 @@ function createDay(day, startDate) {
     activeCalories: '',
     steps: '',
     habitValues: {},
+    choiceContext: '',
     anxietySituations: [],
+    growthActions: [],
     dailyWinCategory: '',
     dailyWinText: '',
     artifactText: '',
@@ -358,12 +409,17 @@ function getDueReviewIndex(weeklyReviews, currentDayNumber) {
   return -1;
 }
 
-function createInitialState(startDate = todayKey(), scenario = 'career') {
+function createInitialState(startDate = todayKey(), contractAcceptedAt = null) {
   const createdAt = new Date().toISOString();
   return {
-    version: 5,
-    scenario,
+    version: 6,
+    scenario: 'life',
     journeyId: `journey-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    contractAcceptedAt,
+    careerDecision: {
+      status: 'pending',
+      decidedAt: null,
+    },
     profile: { ...DEFAULT_PROFILE },
     habits: DEFAULT_HABITS.map((habit) => ({ ...habit, createdAt: startDate })),
     startDate,
@@ -381,22 +437,42 @@ function createInitialState(startDate = todayKey(), scenario = 'career') {
   };
 }
 
+function normalizeHabits(rawHabits, startDate) {
+  const source = Array.isArray(rawHabits) ? rawHabits : [];
+  const core = DEFAULT_HABITS.map((defaultHabit) => ({
+    ...defaultHabit,
+    ...(source.find((habit) => habit.id === defaultHabit.id) || {}),
+    name: defaultHabit.name,
+    active: true,
+    locked: true,
+    createdAt: source.find((habit) => habit.id === defaultHabit.id)?.createdAt || startDate,
+  }));
+  const custom = source
+    .filter((habit) => !CORE_HABIT_IDS.includes(habit.id))
+    .map((habit) => ({ ...habit, active: habit.active !== false, locked: false }));
+  return [...core, ...custom];
+}
+
 function normalizeState(raw) {
   if (!raw?.startDate) return null;
   const startDate = raw.startDate;
+  const isCurrentContract = Number(raw.version || 0) >= 6 && Boolean(raw.contractAcceptedAt);
   return {
-    ...createInitialState(startDate, raw.scenario || 'career'),
+    ...createInitialState(startDate, null),
     ...raw,
-    version: 5,
-    scenario: raw.scenario || 'career',
+    version: 6,
+    scenario: isCurrentContract ? 'life' : (raw.scenario || 'life'),
+    contractAcceptedAt: isCurrentContract ? raw.contractAcceptedAt : null,
     journeyId: raw.journeyId || `legacy-${raw.createdAt || startDate}`,
+    careerDecision: {
+      status: raw.careerDecision?.status || 'pending',
+      decidedAt: raw.careerDecision?.decidedAt || null,
+    },
     profile: {
       ...DEFAULT_PROFILE,
       ...(raw.profile || {}),
     },
-    habits: Array.isArray(raw.habits) && raw.habits.length
-      ? raw.habits.map((habit) => ({ ...habit, active: habit.active !== false }))
-      : DEFAULT_HABITS.map((habit) => ({ ...habit, createdAt: startDate })),
+    habits: normalizeHabits(raw.habits, startDate),
     days: Array.from({ length: TOTAL_DAYS }, (_, index) => {
       const previous = raw.days?.[index] || {};
       const legacyProof = previous.artifactType ? [previous.artifactType] : [];
@@ -421,6 +497,15 @@ function normalizeState(raw) {
             peak: item.peak ?? '',
             after: item.after ?? '',
             action: item.action || '',
+          }))
+          : [],
+        growthActions: Array.isArray(previous.growthActions)
+          ? previous.growthActions.map((item, itemIndex) => ({
+            id: item.id || `growth-${index + 1}-${itemIndex + 1}`,
+            category: item.category || 'other',
+            impact: item.impact || 'step',
+            text: item.text || '',
+            outcome: item.outcome || '',
           }))
           : [],
         dailyWinCategory: previous.dailyWinCategory || (previous.workWinType ? 'work' : ''),
@@ -594,46 +679,51 @@ function evaluateLifeDay(day, habits) {
   const calories = num(day.calories);
   const meals = num(day.meals);
   const weight = num(day.weight);
-  const readingMinutes = num(day.readingMinutes);
   const hasNutritionFields = calories > 0 && meals > 0;
   const hasNutrition = calories > 0 && calories <= CALORIE_LIMIT && meals >= 1 && meals <= 3;
   const hasTopNutrition = hasNutrition && calories <= CALORIE_TOP;
   const hasWeight = weight > 0;
   const activeHabits = getActiveHabits(habits);
-  const habitAnswers = activeHabits.map((habit) => getHabitValue(day, habit.id));
-  const answeredHabits = habitAnswers.filter((value) => typeof value === 'boolean').length;
-  const keptHabits = habitAnswers.filter((value) => value === true).length;
-  const hasHabitAnswers = answeredHabits === activeHabits.length;
-  const habitRate = activeHabits.length ? keptHabits / activeHabits.length : 0;
-  const hasReadingAnswer = day.readingMinutes !== '' && day.readingMinutes !== null && day.readingMinutes !== undefined;
+  const coreHabits = activeHabits.filter((habit) => CORE_HABIT_IDS.includes(habit.id));
+  const coreAnswers = coreHabits.map((habit) => getHabitValue(day, habit.id));
+  const hasCoreAnswers = coreAnswers.length === CORE_HABIT_IDS.length && coreAnswers.every((value) => typeof value === 'boolean');
+  const keptCoreRules = hasCoreAnswers && coreAnswers.every((value) => value === true);
+  const hasBrokenCoreRule = hasCoreAnswers && coreAnswers.some((value) => value === false);
+  const hasChoiceContext = !hasBrokenCoreRule || day.choiceContext?.trim().length >= 3;
   const hasActivityFields = day.activeCalories !== '' && day.steps !== '';
   const hasDailyWin = Boolean(day.dailyWinCategory && day.dailyWinText?.trim().length >= 5);
   const anxietyComplete = (day.anxietySituations || []).every(isAnxietySituationComplete);
+  const growthActions = day.growthActions || [];
+  const growthActionsComplete = growthActions.every(isGrowthActionComplete);
+  const completedGrowthActions = growthActions.filter(isGrowthActionComplete);
+  const growthXp = completedGrowthActions.reduce((sum, item) => sum + (GROWTH_IMPACTS.find((impact) => impact.id === item.impact)?.xp || 0), 0);
   const canFix = hasNutritionFields
     && hasWeight
-    && hasHabitAnswers
-    && hasReadingAnswer
+    && hasCoreAnswers
     && hasActivityFields
     && hasDailyWin
-    && anxietyComplete;
+    && anxietyComplete
+    && growthActionsComplete
+    && hasChoiceContext;
 
   const score = [
     hasNutrition ? 20 : hasNutritionFields ? 8 : 0,
     hasWeight ? 5 : 0,
     hasActivityFields ? 10 : 0,
-    Math.round(habitRate * 35),
-    readingMinutes >= 20 ? 10 : readingMinutes > 0 ? 5 : 0,
+    keptCoreRules ? 40 : hasCoreAnswers ? 0 : 0,
     hasDailyWin ? 20 : 0,
+    Math.min(5, completedGrowthActions.length * 3),
   ].reduce((sum, value) => sum + value, 0);
 
   const blockers = [];
-  if (!hasHabitAnswers) blockers.push(`Привычки: отметь все плитки (${answeredHabits}/${activeHabits.length})`);
+  if (!hasCoreAnswers) blockers.push('Нерушимые правила: честно отметь алкоголь и сладкое');
   if (!hasNutritionFields) blockers.push('Питание: внеси калории и количество приёмов пищи');
   if (!hasWeight) blockers.push('Вес: внеси текущий вес');
   if (!hasActivityFields) blockers.push('Активность: внеси активные калории и шаги, даже если значение равно 0');
-  if (!hasReadingAnswer) blockers.push('Чтение: внеси минуты, даже если сегодня было 0');
-  if (!hasDailyWin) blockers.push('Победа дня: зафиксируй одно доказательство роста');
+  if (!hasDailyWin) blockers.push('Доверие к себе: зафиксируй одно доказательство дня');
+  if (!hasChoiceContext) blockers.push('Возврат к выбору: коротко зафиксируй, что происходило перед нарушением');
   if (!anxietyComplete) blockers.push('Тревога: заверши или удали добавленную ситуацию');
+  if (!growthActionsComplete) blockers.push('Действия роста: заверши или удали добавленное действие');
 
   if (!canFix) {
     return {
@@ -652,15 +742,14 @@ function evaluateLifeDay(day, habits) {
     };
   }
 
-  let tier = TIERS.bad;
-  if (score >= 35) tier = TIERS.weak;
-  if (score >= 55) tier = TIERS.base;
-  if (score >= 75) tier = TIERS.growth;
-  if (hasTopNutrition && activeHabits.length > 0 && keptHabits === activeHabits.length && readingMinutes >= 20 && hasActivityFields) tier = TIERS.breakthrough;
+  let tier = keptCoreRules ? (hasNutrition ? TIERS.base : TIERS.weak) : TIERS.bad;
+  if (keptCoreRules && hasNutrition && (completedGrowthActions.length > 0 || (day.anxietySituations || []).length > 0)) tier = TIERS.growth;
+  if (keptCoreRules && (hasTopNutrition || completedGrowthActions.length > 1) && completedGrowthActions.some((item) => item.impact === 'breakthrough')) tier = TIERS.breakthrough;
 
   return {
     ...tier,
-    score,
+    score: Math.min(100, score),
+    xp: tier.xp + growthXp,
     canFix,
     blockers: [],
     description: getTierDescription(tier.id, 'life'),
@@ -702,9 +791,19 @@ function calculateStats(days, currentDayIndex, habits = DEFAULT_HABITS, profile 
 
   const workMinutes = closedDays.reduce((sum, day) => sum + num(day.workMinutes), 0);
   const proofCount = closedDays.reduce((sum, day) => sum + (Array.isArray(day.proofs) ? day.proofs.length : 0), 0);
-  const readingMinutes = recordedDays.reduce((sum, day) => sum + num(day.readingMinutes), 0);
-  const readingDays = recordedDays.filter((day) => num(day.readingMinutes) > 0).length;
   const dailyWins = recordedDays.filter((day) => day.dailyWinText?.trim());
+  const choiceContexts = closedDays.filter((day) => day.choiceContext?.trim());
+  const growthActions = recordedDays.flatMap((day) => (day.growthActions || []).map((item) => ({
+    ...item,
+    day: day.day,
+    date: day.date,
+    complete: isGrowthActionComplete(item),
+  }))).filter((item) => item.complete);
+  const growthXp = growthActions.reduce((sum, item) => sum + (GROWTH_IMPACTS.find((impact) => impact.id === item.impact)?.xp || 0), 0);
+  const actingSessions = growthActions.filter((item) => item.category === 'acting');
+  const photoActions = growthActions.filter((item) => item.category === 'photo');
+  const konturActions = growthActions.filter((item) => item.category === 'kontur');
+  const oneCActions = growthActions.filter((item) => item.category === 'one-c');
   const anxietyEvents = recordedDays.flatMap((day) => (day.anxietySituations || []).map((item) => ({
     ...item,
     day: day.day,
@@ -747,6 +846,12 @@ function calculateStats(days, currentDayIndex, habits = DEFAULT_HABITS, profile 
     if (day.result && keptAll) return { count: acc.count + 1, done: false };
     return { count: acc.count, done: true };
   }, { count: 0, done: false }).count;
+  const selfTrustScore = closedDays.length ? Math.round(closedDays.reduce((sum, day) => {
+    const keptCore = CORE_HABIT_IDS.every((habitId) => getHabitValue(day, habitId) === true);
+    const hasWin = Boolean(day.dailyWinText?.trim());
+    const hasGrowth = (day.growthActions || []).some(isGrowthActionComplete);
+    return sum + (keptCore ? 60 : 0) + (hasWin ? 20 : 0) + (hasGrowth ? 20 : 0);
+  }, 0) / closedDays.length) : 0;
 
   return {
     elapsedDays,
@@ -777,9 +882,14 @@ function calculateStats(days, currentDayIndex, habits = DEFAULT_HABITS, profile 
     totalEnergyBalance,
     workMinutes,
     proofCount,
-    readingMinutes,
-    readingDays,
     dailyWins,
+    choiceContexts,
+    growthActions,
+    growthXp,
+    actingSessions,
+    photoActions,
+    konturActions,
+    oneCActions,
     anxietyEvents,
     anxietyBefore,
     anxietyPeak,
@@ -790,6 +900,7 @@ function calculateStats(days, currentDayIndex, habits = DEFAULT_HABITS, profile 
     emptyDays,
     streak,
     cleanStreak,
+    selfTrustScore,
   };
 }
 
@@ -825,11 +936,13 @@ function getWeeks(days, habits = DEFAULT_HABITS, profile = DEFAULT_PROFILE) {
         kept: closed.filter((day) => getHabitValue(day, habit.id) === true).length,
         answered: closed.filter((day) => typeof getHabitValue(day, habit.id) === 'boolean').length,
       })),
-      readingMinutes: closed.reduce((sum, day) => sum + num(day.readingMinutes), 0),
       activeCalories: closed.reduce((sum, day) => sum + num(day.activeCalories), 0),
       steps: closed.reduce((sum, day) => sum + num(day.steps), 0),
       avgEnergyBalance: energyBalances.length ? Math.round(energyBalances.reduce((sum, value) => sum + value, 0) / energyBalances.length) : 0,
       dailyWins: closed.filter((day) => day.dailyWinText?.trim()).length,
+      growthActions: closed.reduce((sum, day) => sum + (day.growthActions || []).filter(isGrowthActionComplete).length, 0),
+      actingSessions: closed.reduce((sum, day) => sum + (day.growthActions || []).filter((item) => isGrowthActionComplete(item) && item.category === 'acting').length, 0),
+      photoActions: closed.reduce((sum, day) => sum + (day.growthActions || []).filter((item) => isGrowthActionComplete(item) && item.category === 'photo').length, 0),
       anxietyEvents: closed.reduce((sum, day) => sum + (day.anxietySituations || []).filter(isAnxietySituationComplete).length, 0),
       breakthrough: closed.filter((day) => day.result === 'breakthrough').length,
       growth: closed.filter((day) => day.result === 'growth').length,
@@ -862,10 +975,12 @@ function checkpointSummary(days, dayNumber, habits = DEFAULT_HABITS, profile = D
     })),
     alcoholFreeDays: closed.filter((day) => getHabitValue(day, 'alcohol') === true).length,
     sweetFreeDays: closed.filter((day) => getHabitValue(day, 'sweet') === true).length,
-    readingMinutes: closed.reduce((sum, day) => sum + num(day.readingMinutes), 0),
     steps: closed.reduce((sum, day) => sum + num(day.steps), 0),
     avgEnergyBalance: energyBalances.length ? Math.round(energyBalances.reduce((sum, value) => sum + value, 0) / energyBalances.length) : 0,
     dailyWins: closed.filter((day) => day.dailyWinText?.trim()).length,
+    growthActions: closed.reduce((sum, day) => sum + (day.growthActions || []).filter(isGrowthActionComplete).length, 0),
+    actingSessions: closed.reduce((sum, day) => sum + (day.growthActions || []).filter((item) => isGrowthActionComplete(item) && item.category === 'acting').length, 0),
+    photoActions: closed.reduce((sum, day) => sum + (day.growthActions || []).filter((item) => isGrowthActionComplete(item) && item.category === 'photo').length, 0),
     anxietyEvents: closed.reduce((sum, day) => sum + (day.anxietySituations || []).filter(isAnxietySituationComplete).length, 0),
   };
 }
@@ -879,13 +994,17 @@ function buildExport(state, stats, weeks) {
   const scenarioMetrics = isLife
     ? [
       ...habitLines,
-      `Чтение: ${(stats.readingMinutes / 60).toFixed(1)} ч за ${stats.readingDays} дней`,
       `Побед дня: ${stats.dailyWins.length}`,
+      `Действий роста: ${stats.growthActions.length}`,
+      `Актёрских занятий: ${stats.actingSessions.length}`,
+      `Действий в фотографии: ${stats.photoActions.length}`,
+      `Индекс доверия к себе: ${stats.selfTrustScore}%`,
       `Тревожных ситуаций: ${stats.anxietyEvents.length}`,
+      `Карьерный маршрут: ${CAREER_DECISIONS[state.careerDecision?.status || 'pending'].title}`,
     ]
     : [`1С/рынок часы: ${(stats.workMinutes / 60).toFixed(1)}`];
   const aiQuestion = isLife
-    ? 'Проанализируй мой 120-дневный путь изменения личности без морализаторства. Найди, какие условия помогают удерживать привычки, питание, дефицит энергии и вес, закрепляться в ЯвКонтуре и спокойнее проявлять себя. Сопоставь конкретные тревожные ситуации, уровни до/на пике/после и победы дня. Дай 3 реалистичных рычага на следующую неделю.'
+    ? 'Проанализируй мой 120-дневный путь без морализаторства и обесценивания. Найди, какие условия помогают соблюдать нулевой алкоголь и сладкое, управлять питанием, дефицитом и весом, расти в Контуре или по новому карьерному маршруту, заниматься актёрским мастерством, снимать и действовать несмотря на тревогу. Сопоставь действия роста, конкретные ситуации тревоги и доказательства доверия к себе. Дай 3 реалистичных рычага на следующую неделю.'
     : 'Проанализируй мой 120-дневный путь. Найди, почему я приближаюсь или не приближаюсь к идеальной форме, сильному 1С-уровню и выходу на рынок. Объясни связь минут 1С/рынка, питания, веса и доказательств роста. Дай 3 главных рычага на следующую неделю.';
   const markdown = [
     `# ${SCENARIOS[scenario].header}`,
@@ -905,7 +1024,7 @@ function buildExport(state, stats, weeks) {
     `Средний энергобаланс: ${stats.avgEnergyBalance > 0 ? '+' : ''}${stats.avgEnergyBalance} ккал`,
     `Суммарный дефицит: ${stats.totalDeficit} ккал`,
     `Вес: ${stats.firstWeight || 'нет'} -> ${stats.lastWeight || 'нет'} кг, дельта ${stats.weightDelta} кг`,
-    `Доказательств роста: ${stats.proofCount}`,
+    `Действий роста: ${isLife ? stats.growthActions.length : stats.proofCount}`,
     '',
     '## Вопрос к нейросети',
     aiQuestion,
@@ -918,21 +1037,21 @@ function buildExport(state, stats, weeks) {
     '## Недельные метрики',
     ...weeks.filter((week) => week.closed.length).map((week) => (
       isLife
-        ? `- Неделя ${week.number}: закрыто ${week.closed.length}/7, очки ${week.xp}, привычки: ${week.habitStats.map((habit) => `${habit.name} ${habit.kept}/${habit.answered}`).join(', ') || '-'}, чтение ${(week.readingMinutes / 60).toFixed(1)} ч, шаги ${week.steps}, энергобаланс ${week.avgEnergyBalance > 0 ? '+' : ''}${week.avgEnergyBalance} ккал, побед дня ${week.dailyWins}, тревожных ситуаций ${week.anxietyEvents}, вес ${week.weightDelta > 0 ? '+' : ''}${week.weightDelta} кг.`
+        ? `- Неделя ${week.number}: закрыто ${week.closed.length}/7, очки ${week.xp}, правила: ${week.habitStats.map((habit) => `${habit.name} ${habit.kept}/${habit.answered}`).join(', ') || '-'}, действия роста ${week.growthActions}, актёрских занятий ${week.actingSessions}, фотография ${week.photoActions}, шаги ${week.steps}, энергобаланс ${week.avgEnergyBalance > 0 ? '+' : ''}${week.avgEnergyBalance} ккал, побед дня ${week.dailyWins}, тревожных ситуаций ${week.anxietyEvents}, вес ${week.weightDelta > 0 ? '+' : ''}${week.weightDelta} кг.`
         : `- Неделя ${week.number}: закрыто ${week.closed.length}/7, очки ${week.xp}, 1С/рынок ${(week.work / 60).toFixed(1)} ч, средние ккал ${week.avgCalories || '-'}, дней <=1800: ${week.topCalories}, вес ${week.weightDelta > 0 ? '+' : ''}${week.weightDelta} кг, доказательств ${week.proofCount}.`
     )),
     '',
     '## Чекпоинты',
     ...checkpoints.map((item) => (
       isLife
-        ? `- День ${item.day}: закрыто ${item.closed}/${item.elapsed}, очки ${item.xp}, привычки: ${item.habitStats.map((habit) => `${habit.name} ${habit.kept}`).join(', ')}, чтение ${(item.readingMinutes / 60).toFixed(1)} ч, шаги ${item.steps}, энергобаланс ${item.avgEnergyBalance > 0 ? '+' : ''}${item.avgEnergyBalance} ккал, вес ${item.weightDelta > 0 ? '+' : ''}${item.weightDelta} кг.`
+        ? `- День ${item.day}: закрыто ${item.closed}/${item.elapsed}, очки ${item.xp}, правила: ${item.habitStats.map((habit) => `${habit.name} ${habit.kept}`).join(', ')}, действия роста ${item.growthActions}, актёрских занятий ${item.actingSessions}, фотография ${item.photoActions}, шаги ${item.steps}, энергобаланс ${item.avgEnergyBalance > 0 ? '+' : ''}${item.avgEnergyBalance} ккал, вес ${item.weightDelta > 0 ? '+' : ''}${item.weightDelta} кг.`
         : `- День ${item.day}: закрыто ${item.closed}/${item.elapsed}, очки ${item.xp}, 1С/рынок ${(item.workMinutes / 60).toFixed(1)} ч, средние ккал ${item.avgCalories || '-'}, вес ${item.weightDelta > 0 ? '+' : ''}${item.weightDelta} кг, доказательств ${item.proofCount}.`
     )),
     '',
     '## Дни',
     ...closed.map((day) => (
       isLife
-        ? `- День ${day.day} (${day.date}): ${TIERS[day.result]?.title || day.result}, очки ${day.xp}, привычки: ${state.habits.map((habit) => `${habit.name}: ${getHabitValue(day, habit.id) === true ? 'да' : getHabitValue(day, habit.id) === false ? 'нет' : '-'}`).join(', ')}, чтение ${day.readingMinutes || 0} мин, ккал ${day.calories}, активные ккал ${day.activeCalories || 0}, шаги ${day.steps || 0}, вес ${day.weight} кг, победа дня: ${day.dailyWinText || '-'}, тревога: ${(day.anxietySituations || []).map((item) => `${item.situation} (${item.before}/${item.peak}/${item.after})`).join('; ') || 'ситуаций не было'}`
+        ? `- День ${day.day} (${day.date}): ${TIERS[day.result]?.title || day.result}, очки ${day.xp}, правила: ${state.habits.map((habit) => `${habit.name}: ${getHabitValue(day, habit.id) === true ? 'да' : getHabitValue(day, habit.id) === false ? 'нет' : '-'}`).join(', ')}, контекст возврата: ${day.choiceContext || '-'}, ккал ${day.calories}, активные ккал ${day.activeCalories || 0}, шаги ${day.steps || 0}, вес ${day.weight} кг, доверие к себе: ${day.dailyWinText || '-'}, действия роста: ${(day.growthActions || []).map((item) => `${GROWTH_CATEGORIES.find((category) => category.id === item.category)?.label || item.category}: ${item.text}`).join('; ') || '-'}, тревога: ${(day.anxietySituations || []).map((item) => `${item.situation} (${item.before}/${item.peak}/${item.after})`).join('; ') || 'ситуаций не было'}`
         : `- День ${day.day} (${day.date}): ${TIERS[day.result]?.title || day.result}, очки ${day.xp}, 1С/рынок ${day.workMinutes} мин, ккал ${day.calories}, активные ккал ${day.activeCalories || 0}, шаги ${day.steps || 0}, вес ${day.weight} кг, доказательства: ${(day.proofs || []).join(', ') || '-'}, действие: ${day.actionText}, победа дня: ${day.dailyWinText || '-'}`
     )),
     '',
@@ -947,6 +1066,8 @@ function buildExport(state, stats, weeks) {
     meta: {
       scenario,
       startDate: state.startDate,
+      contractAcceptedAt: state.contractAcceptedAt,
+      careerDecision: state.careerDecision,
       totalDays: TOTAL_DAYS,
       exportedAt: new Date().toISOString(),
     },
@@ -965,14 +1086,13 @@ function getDiagnosis(stats, week, scenario = 'career') {
   if (!stats.closedDays.length) return ['Пока нет закрытых дней. Первый результат появится после фиксации дня.'];
   const items = [];
   if (scenario === 'life') {
-    const closedCount = Math.max(1, stats.closedDays.length);
     const activeHabitStats = stats.habitStats.filter((habit) => habit.active !== false);
     const weakestHabit = [...activeHabitStats].sort((a, b) => a.rate - b.rate)[0];
     const strongestHabit = [...activeHabitStats].sort((a, b) => b.rate - a.rate)[0];
     if (strongestHabit?.answered) items.push(`${strongestHabit.name}: ${strongestHabit.rate}% успешных отметок. Это самая устойчивая часть новой системы.`);
     if (weakestHabit?.answered && weakestHabit.id !== strongestHabit?.id) items.push(`${weakestHabit.name}: ${weakestHabit.rate}%. Здесь полезнее искать повторяющийся триггер, а не давить на себя.`);
-    if (stats.readingDays >= Math.ceil(closedCount * 0.6)) items.push('Чтение стало регулярным действием, а не редким рывком. Это один из маркеров новой нормы.');
-    else items.push('Чтение пока не встроилось в ритм. Самый простой рычаг - постоянное место и короткий минимум в 10 минут.');
+    if (stats.growthActions.length) items.push(`Зафиксировано ${stats.growthActions.length} действий роста. Это факты движения, которые не зависят от текущей самооценки.`);
+    else items.push('Действий роста пока нет. Начни с одного небольшого поступка, который раньше откладывался из-за тревоги или сравнения.');
     if (stats.avgEnergyBalance < 0) items.push(`Средний дефицит ${Math.abs(stats.avgEnergyBalance)} ккал. При таком темпе вес должен двигаться вниз, если отметки полные.`);
     else if (stats.energyBalances.length) items.push(`Средний профицит ${stats.avgEnergyBalance} ккал. Для цели 65 кг расход пока не перекрывает питание.`);
     if (stats.dailyWins.length) items.push(`Зафиксировано ${stats.dailyWins.length} побед дня. Это конкретные доказательства изменения, а не оценка настроения.`);
@@ -1009,7 +1129,7 @@ function App() {
   const [showExport, setShowExport] = useState(false);
   const [exportMode, setExportMode] = useState('markdown');
   const [copied, setCopied] = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
+  const [careerDecisionChoice, setCareerDecisionChoice] = useState(null);
   const [confirmCloseDay, setConfirmCloseDay] = useState(false);
   const [activeView, setActiveView] = useState('main');
   const [statsRange, setStatsRange] = useState('30');
@@ -1109,8 +1229,9 @@ function App() {
     if (auth) await signOut(auth);
   };
 
-  const startJourney = (scenario) => {
-    const nextState = createInitialState(todayKey(), scenario);
+  const startJourney = () => {
+    const acceptedAt = new Date().toISOString();
+    const nextState = createInitialState(todayKey(), acceptedAt);
     setState(nextState);
     setActiveDayIndex(getCurrentDayIndex(nextState.startDate));
     setActiveView('main');
@@ -1119,7 +1240,7 @@ function App() {
   if (authLoading) return <LoadingScreen text="Проверяю аккаунт..." />;
   if (!user) return <LoginScreen error={authError} onSignIn={signIn} configured={firebaseConfigured} />;
   if (!cloudReady) return <LoadingScreen text="Загружаю твою историю..." />;
-  if (!state) return <StartScreen user={user} onStart={startJourney} onLogOut={logOut} />;
+  if (!state?.contractAcceptedAt) return <StartScreen user={user} onStart={startJourney} onLogOut={logOut} />;
 
   const scenario = state.scenario || 'career';
   const currentDayIndex = getCurrentDayIndex(state.startDate);
@@ -1150,12 +1271,13 @@ function App() {
   const activeDayClosesVisibleWeek = visibleWeek && activeDay.day >= visibleWeek.to;
   const weeklyRequiredForActiveDay = Boolean(activeDayClosesVisibleWeek && !visibleReviewComplete);
   const finalDate = addDays(state.startDate, TOTAL_DAYS - 1);
+  const journeyEnded = dateFromKey(todayKey()).getTime() > dateFromKey(finalDate).getTime();
   const scenarioSignals = scenario === 'life' ? LIFE_SIGNALS : SIGNALS;
   const latestSignal = [...scenarioSignals].reverse().find((signal) => stats.xp >= signal.minXp);
   const exportData = buildExport(state, stats, weeks);
   const isFinalDay = currentDayIndex + 1 >= TOTAL_DAYS;
   const updateActiveDay = (nextDay) => {
-    if (safeActiveDayIndex !== currentDayIndex || activeDay.result) return;
+    if (journeyEnded || safeActiveDayIndex !== currentDayIndex || activeDay.result) return;
     const changedAt = new Date().toISOString();
     setState((previous) => ({
       ...previous,
@@ -1169,7 +1291,7 @@ function App() {
   };
 
   const saveDraft = () => {
-    if (safeActiveDayIndex !== currentDayIndex || activeDay.result) return;
+    if (journeyEnded || safeActiveDayIndex !== currentDayIndex || activeDay.result) return;
     const savedAt = new Date().toISOString();
     setState((previous) => ({
       ...previous,
@@ -1182,7 +1304,7 @@ function App() {
 
   const closeDay = () => {
     const evaluation = evaluateDay(activeDay, scenario, state.habits);
-    if (safeActiveDayIndex !== currentDayIndex || !evaluation.canFix || weeklyRequiredForActiveDay) return;
+    if (journeyEnded || safeActiveDayIndex !== currentDayIndex || !evaluation.canFix || weeklyRequiredForActiveDay) return;
     const closedAt = new Date().toISOString();
     setConfirmCloseDay(false);
     setState((previous) => ({
@@ -1216,6 +1338,7 @@ function App() {
   };
 
   const removeHabit = (habitId) => {
+    if (CORE_HABIT_IDS.includes(habitId)) return;
     const changedAt = new Date().toISOString();
     setState((previous) => ({
       ...previous,
@@ -1254,12 +1377,15 @@ function App() {
     }));
   };
 
-  const resetJourney = (nextScenario) => {
-    const nextState = createInitialState(todayKey(), nextScenario);
-    setConfirmReset(false);
-    setState(nextState);
-    setActiveDayIndex(0);
-    setActiveView('main');
+  const confirmCareerDecision = () => {
+    if (!careerDecisionChoice || state.careerDecision?.status !== 'pending') return;
+    const decidedAt = new Date().toISOString();
+    setState((previous) => ({
+      ...previous,
+      careerDecision: { status: careerDecisionChoice, decidedAt },
+      updatedAtClient: decidedAt,
+    }));
+    setCareerDecisionChoice(null);
   };
 
   const copyExport = async () => {
@@ -1299,8 +1425,13 @@ function App() {
           activeView={activeView}
           onViewChange={setActiveView}
           onExport={() => setShowExport(true)}
-          onReset={() => setConfirmReset(true)}
           onLogOut={logOut}
+        />
+
+        <CareerRoutePanel
+          decision={state.careerDecision}
+          stats={stats}
+          onChoose={setCareerDecisionChoice}
         />
 
         {activeView === 'main' ? (
@@ -1320,6 +1451,7 @@ function App() {
                 activeDayIndex={safeActiveDayIndex}
                 currentDayIndex={currentDayIndex}
                 weeklyRequired={weeklyRequiredForActiveDay}
+                journeyEnded={journeyEnded}
               />
               <PathPanel
                 days={state.days}
@@ -1345,7 +1477,7 @@ function App() {
           </>
         ) : (
           <>
-            <ModernDashboard scenario={scenario} days={state.days} stats={stats} currentWeek={currentWeek} weeks={weeks} habits={state.habits} profile={state.profile} range={statsRange} onRangeChange={setStatsRange} onProfileChange={updateProfile} />
+            <ModernDashboard scenario={scenario} days={state.days} stats={stats} currentWeek={currentWeek} weeks={weeks} habits={state.habits} profile={state.profile} careerDecision={state.careerDecision} range={statsRange} onRangeChange={setStatsRange} onProfileChange={updateProfile} />
           </>
         )}
       </div>
@@ -1362,8 +1494,12 @@ function App() {
             onClose={() => setShowExport(false)}
           />
         )}
-        {confirmReset && (
-          <ConfirmReset currentScenario={scenario} onCancel={() => setConfirmReset(false)} onConfirm={resetJourney} />
+        {careerDecisionChoice && (
+          <ConfirmCareerDecision
+            choice={careerDecisionChoice}
+            onCancel={() => setCareerDecisionChoice(null)}
+            onConfirm={confirmCareerDecision}
+          />
         )}
         {confirmCloseDay && (
           <ConfirmCloseDay
@@ -1421,90 +1557,49 @@ function LoginScreen({ error, onSignIn, configured }) {
 }
 
 function StartScreen({ user, onStart, onLogOut }) {
-  const [selectedScenario, setSelectedScenario] = useState(null);
-  const selected = selectedScenario ? SCENARIOS[selectedScenario] : null;
+  const [rulesAccepted, setRulesAccepted] = useState(false);
+  const [noRestartAccepted, setNoRestartAccepted] = useState(false);
+  const [confirmStart, setConfirmStart] = useState(false);
+  const ready = rulesAccepted && noRestartAccepted;
   return (
-    <div className="min-h-screen bg-[#eef7f9] text-slate-900">
-      <div className="mx-auto grid min-h-screen max-w-6xl place-items-center px-4 py-10">
-        <motion.section initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="grid w-full gap-6 lg:grid-cols-[1fr_0.82fr]">
-          <div className="border border-[#cbdde1] bg-[#f4fafb] p-6 shadow-sm sm:p-8 rounded-lg">
-            <div className="mb-8 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-2 border border-[#d6e5d2] bg-[#eef7eb] px-3 py-2 text-sm font-semibold text-[#436841] rounded-md">
-                <Sparkles size={18} />
-                120 дней роста
-              </span>
-              <span className="inline-flex items-center gap-2 border border-[#d9e6f2] bg-[#eef7ff] px-3 py-2 text-sm font-semibold text-[#255b7a] rounded-md">
-                <User size={18} />
-                {user.email}
-              </span>
-            </div>
-            <h1 className="max-w-3xl text-4xl font-black leading-tight text-slate-950 sm:text-5xl">
-              Выбери, чему служат следующие 120 дней
-            </h1>
-            <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-600">
-              Первый путь помогает выйти на рынок. Второй закрепляет новую жизнь после оффера. В обоих сценариях старт фиксируется сегодняшней датой, а история хранится в аккаунте.
-            </p>
-            <div className="mt-7">
-              <ScenarioPicker selected={selectedScenario} onSelect={setSelectedScenario} />
-            </div>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <button
-                onClick={() => onStart(selectedScenario)}
-                disabled={!selectedScenario}
-                className="inline-flex items-center gap-2 bg-slate-950 px-5 py-3 font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 rounded-md"
-              >
-                <Play size={18} />
-                {selected ? `Начать «${selected.shortTitle}»` : 'Сначала выбери сценарий'}
-              </button>
-              <button onClick={onLogOut} className="inline-flex items-center gap-2 border border-[#d5e3e5] bg-white px-5 py-3 font-bold text-slate-700 shadow-sm transition hover:bg-[#f4fafb] rounded-md">
-                <LogOut size={18} />
-                Выйти
-              </button>
-            </div>
+    <div className="min-h-screen bg-[#eef7fb] text-slate-900">
+      <section className="relative min-h-[66vh] overflow-hidden bg-[#dff4fb]" style={{ backgroundImage: `url(${transformationBanner})`, backgroundPosition: 'center', backgroundSize: 'cover' }}>
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(245,252,255,0.98)_0%,rgba(245,252,255,0.91)_48%,rgba(245,252,255,0.28)_100%)]" />
+        <div className="relative mx-auto flex min-h-[66vh] max-w-7xl flex-col justify-center px-4 py-12 sm:px-6 lg:px-8">
+          <div className="mb-6 flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-2 border border-[#8ed8c1] bg-white/90 px-3 py-2 text-sm font-black text-[#126b55] rounded-md"><Heart size={18} />Жёсткость к правилам. Мягкость к себе.</span>
+            <span className="inline-flex max-w-[250px] items-center gap-2 border border-[#b8d8ee] bg-white/90 px-3 py-2 text-sm font-bold text-[#124f73] rounded-md"><User size={18} /><span className="truncate">{user.email}</span></span>
           </div>
+          <h1 className="max-w-3xl text-4xl font-black leading-tight text-[#102a43] sm:text-6xl">120 дней, после которых действия говорят за тебя</h1>
+          <p className="mt-5 max-w-2xl text-lg font-semibold leading-8 text-slate-700">Не наказание и не попытка заслужить ценность. Ты уже ценность. Этот путь нужен, чтобы научиться доверять себе по фактам и спокойно делать то, что важно.</p>
+          <div className="mt-7 flex flex-wrap gap-3">
+            <button type="button" onClick={() => setConfirmStart(true)} disabled={!ready} className="inline-flex min-h-[52px] items-center gap-2 bg-[#ef5f42] px-5 py-3 font-black text-white shadow-lg transition hover:bg-[#d94c32] disabled:cursor-not-allowed disabled:bg-slate-300 rounded-md"><Play size={19} />Запустить единственный марафон</button>
+            <button onClick={onLogOut} className="inline-flex min-h-[52px] items-center gap-2 border border-[#c9dce7] bg-white/90 px-5 py-3 font-bold text-slate-700 shadow-sm rounded-md"><LogOut size={18} />Выйти</button>
+          </div>
+        </div>
+      </section>
 
-          <div className="grid gap-3">
-            {selectedScenario === 'life' ? (
-              <>
-                <StartMetric icon={<Target size={20} />} title="Ценность в ЯвКонтуре" text="Каждый день оставляет доказательство, что ты становишься полезнее как специалист." />
-                <StartMetric icon={<Utensils size={20} />} title="Форма и 65 кг" text="Питание, расход, дефицит и прогноз веса считаются автоматически." />
-                <StartMetric icon={<Brain size={20} />} title="Спокойное проявление" text="Конкретные тревожные ситуации показывают, где ты действуешь, оставаясь собой." />
-                <StartMetric icon={<Medal size={20} />} title="Победы дня" text="Один факт ежедневно собирает доказательства новой версии тебя." />
-              </>
-            ) : (
-              <>
-                <StartMetric icon={<Target size={20} />} title="1С и рынок" text="Учёба, практика, проект, вакансии, резюме, отклики." />
-                <StartMetric icon={<Utensils size={20} />} title="Питание" text="1800 как топ, 2300 как верхняя граница." />
-                <StartMetric icon={<Scale size={20} />} title="Вес" text="График покажет, куда реально идёт тело." />
-                <StartMetric icon={<Trophy size={20} />} title="День 120" text="Финальная форма появится как отдельный экран в конце пути." />
-              </>
-            )}
+      <div className="mx-auto grid max-w-7xl gap-6 px-4 py-8 sm:px-6 lg:grid-cols-[1.15fr_0.85fr] lg:px-8">
+        <section>
+          <div className="mb-4 text-sm font-black uppercase tracking-wide text-[#0d7ea5]">Личный контракт</div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <StartMetric icon={<BadgeCheck size={20} />} title="Закрепиться в Контуре" text="Стать полезным специалистом. После решения испытательного срока маршрут зафиксирует следующий курс." />
+            <StartMetric icon={<Scale size={20} />} title="65 кг и видимый пресс" text="Чистое питание, вес, активность и энергобаланс собираются в одну честную траекторию." />
+            <StartMetric icon={<Drama size={20} />} title="Действовать свободнее" text="Два актёрских занятия в неделю и реальные действия несмотря на тревогу." />
+            <StartMetric icon={<Camera size={20} />} title="Снова снимать" text="Минимум одна настоящая съёмка и дальнейшее развитие без ожидания чужого разрешения." />
           </div>
-        </motion.section>
+        </section>
+        <section className="border border-[#b8d8ee] bg-white p-5 shadow-sm rounded-lg">
+          <div className="flex items-center gap-2 text-lg font-black text-[#102a43]"><ShieldCheck size={21} className="text-[#ef5f42]" />Перед стартом</div>
+          <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">Дата старта фиксируется сегодня. Следующие 120 календарных дней нельзя удалить, поставить на паузу или начать заново.</p>
+          <label className="mt-5 flex cursor-pointer items-start gap-3 border border-[#dbe7ee] bg-[#f8fbfd] p-3 rounded-md"><input type="checkbox" checked={rulesAccepted} onChange={(event) => setRulesAccepted(event.target.checked)} className="mt-1 h-4 w-4 accent-[#ef5f42]" /><span className="text-sm font-bold leading-6 text-slate-700">Я выбираю 0 алкоголя и 0 сладкого на 120 дней. Нарушение фиксируется честно, без самоунижения.</span></label>
+          <label className="mt-3 flex cursor-pointer items-start gap-3 border border-[#dbe7ee] bg-[#f8fbfd] p-3 rounded-md"><input type="checkbox" checked={noRestartAccepted} onChange={(event) => setNoRestartAccepted(event.target.checked)} className="mt-1 h-4 w-4 accent-[#ef5f42]" /><span className="text-sm font-bold leading-6 text-slate-700">Я понимаю: повторного старта не будет. Моя задача не быть идеальным, а пройти весь путь и увидеть правду.</span></label>
+        </section>
       </div>
-    </div>
-  );
-}
 
-function ScenarioPicker({ selected, onSelect, compact = false }) {
-  return (
-    <div className={`grid gap-3 ${compact ? '' : 'sm:grid-cols-2'}`}>
-      {Object.values(SCENARIOS).map((scenario) => {
-        const active = selected === scenario.id;
-        const icon = scenario.id === 'life' ? <WineOff size={21} /> : <Target size={21} />;
-        return (
-          <button
-            key={scenario.id}
-            type="button"
-            onClick={() => onSelect(scenario.id)}
-            className={`min-h-[118px] border p-4 text-left transition rounded-lg ${active ? 'border-[#5f8f5d] bg-[#eef7eb] ring-2 ring-[#b8d9b3]' : 'border-[#cbdde2] bg-white hover:border-[#b8cdb2] hover:bg-[#fbfdf9]'}`}
-          >
-            <span className={`mb-3 grid h-9 w-9 place-items-center rounded-md ${active ? 'bg-[#d8ecd3] text-[#12676a]' : 'bg-[#f3efe7] text-slate-600'}`}>{icon}</span>
-            <span className="block text-base font-black text-slate-950">{scenario.title}</span>
-            <span className="mt-1 block text-sm font-semibold leading-6 text-slate-600">{scenario.description}</span>
-          </button>
-        );
-      })}
+      <AnimatePresence>
+        {confirmStart && <ConfirmStart onCancel={() => setConfirmStart(false)} onConfirm={onStart} />}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1530,7 +1625,6 @@ function Header({
   activeView,
   onViewChange,
   onExport,
-  onReset,
   onLogOut,
 }) {
   const syncText = syncState === 'saving' ? 'сохраняю' : syncState === 'offline' ? 'офлайн' : 'синхронно';
@@ -1554,9 +1648,10 @@ function Header({
           </h1>
           {scenario === 'life' && (
             <div className="mt-3 flex max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 text-sm font-black text-[#0c6685]">
-              <span>Стать ценным специалистом в ЯвКонтуре</span><span className="text-[#62acc4]">·</span>
+              <span>Закрепиться в Контуре</span><span className="text-[#62acc4]">·</span>
               <span>65 кг и выраженный пресс</span><span className="text-[#62acc4]">·</span>
-              <span>Быть собой и спокойно проявляться</span>
+              <span>2 актёрских занятия в неделю</span><span className="text-[#62acc4]">·</span>
+              <span>Снимать и спокойно проявляться</span>
             </div>
           )}
         </div>
@@ -1565,7 +1660,6 @@ function Header({
           <div className="flex flex-wrap items-center gap-2 xl:justify-end">
             <HeaderPill icon={<User size={16} />} label="Аккаунт" value={user.email || 'user'} />
             <IconButton onClick={onExport} icon={<Download size={16} />} label="Экспорт" tone="plain" compact />
-            <IconButton onClick={onReset} icon={<RotateCcw size={16} />} label="Старт" tone="plain" compact />
             <IconButton onClick={onLogOut} icon={<LogOut size={16} />} label="Выйти" tone="plain" compact />
           </div>
           <div className="flex flex-wrap gap-2 xl:justify-end">
@@ -1579,6 +1673,39 @@ function Header({
       </div>
       </div>
     </header>
+  );
+}
+
+function CareerRoutePanel({ decision, stats, onChoose }) {
+  const status = decision?.status || 'pending';
+  const content = CAREER_DECISIONS[status];
+  const isPending = status === 'pending';
+  return (
+    <section className={`border p-4 shadow-sm rounded-lg ${status === 'passed' ? 'border-[#8bd5ac] bg-[#edfbf3]' : status === 'not_passed' ? 'border-[#b9b4ef] bg-[#f4f2ff]' : 'border-[#b8d8ee] bg-white'}`}>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-md ${status === 'passed' ? 'bg-[#16a36a] text-white' : status === 'not_passed' ? 'bg-[#6657c8] text-white' : 'bg-[#e9f7fd] text-[#0d7ea5]'}`}>
+            {status === 'passed' ? <BadgeCheck size={23} /> : <Route size={23} />}
+          </span>
+          <div>
+            <div className="text-xs font-black uppercase tracking-wide text-slate-500">Карьерный маршрут</div>
+            <h2 className="mt-1 text-xl font-black text-[#102a43]">{content.title}</h2>
+            <p className="mt-1 max-w-3xl text-sm font-semibold leading-6 text-slate-600">{content.description}</p>
+          </div>
+        </div>
+        {isPending ? (
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+            <button type="button" onClick={() => onChoose('passed')} className="inline-flex min-h-[44px] items-center justify-center gap-2 bg-[#16a36a] px-4 py-2 text-sm font-black text-white rounded-md"><BadgeCheck size={17} />Испытательный пройден</button>
+            <button type="button" onClick={() => onChoose('not_passed')} className="inline-flex min-h-[44px] items-center justify-center gap-2 border border-[#b9b4ef] bg-[#f4f2ff] px-4 py-2 text-sm font-black text-[#4e459f] rounded-md"><Route size={17} />Маршрут изменился</button>
+          </div>
+        ) : (
+          <div className="grid shrink-0 grid-cols-2 gap-2 text-center">
+            <div className="border border-white/80 bg-white/80 px-3 py-2 rounded-md"><div className="text-xs font-bold text-slate-500">Контур</div><div className="text-lg font-black text-[#0d7ea5]">{stats.konturActions.length}</div></div>
+            <div className="border border-white/80 bg-white/80 px-3 py-2 rounded-md"><div className="text-xs font-bold text-slate-500">1С</div><div className="text-lg font-black text-[#6657c8]">{stats.oneCActions.length}</div></div>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -1634,15 +1761,15 @@ function TodayPanel({
   activeDayIndex,
   currentDayIndex,
   weeklyRequired,
+  journeyEnded,
 }) {
   const isFixed = Boolean(day.result);
   const isToday = activeDayIndex === currentDayIndex;
   const isPast = activeDayIndex < currentDayIndex;
-  const editable = isToday && !isFixed;
+  const editable = isToday && !isFixed && !journeyEnded;
   const isLife = scenario === 'life';
   const activeHabits = getActiveHabits(habits);
-  const answeredHabits = activeHabits.filter((habit) => typeof getHabitValue(day, habit.id) === 'boolean').length;
-  const keptHabits = activeHabits.filter((habit) => getHabitValue(day, habit.id) === true).length;
+  const coreRuleBroken = CORE_HABIT_IDS.some((habitId) => getHabitValue(day, habitId) === false);
   const energyBalance = calculateEnergyBalance(day, profile);
   const bmr = calculateBmr(day.weight, profile);
   const totalExpenditure = bmr ? bmr + num(day.activeCalories) : 0;
@@ -1693,14 +1820,16 @@ function TodayPanel({
         </div>
       )}
 
+      {journeyEnded && !isFixed && (
+        <div className="mb-4 flex items-center gap-2 border border-[#cbd5e1] bg-[#f1f5f9] p-3 text-sm font-black text-slate-600 rounded-lg"><Lock size={16} />120 дней завершены. Незакрытые записи больше не редактируются.</div>
+      )}
+
       <div className="grid gap-4">
         {isLife ? (
           <HabitTracker
             habits={activeHabits}
             values={day.habitValues || {}}
             disabled={!editable}
-            kept={keptHabits}
-            answered={answeredHabits}
             onChange={(habitId, value) => onChange({ ...day, habitValues: { ...(day.habitValues || {}), [habitId]: value } })}
             onAdd={onAddHabit}
             onRemove={onRemoveHabit}
@@ -1720,6 +1849,17 @@ function TodayPanel({
           </>
         )}
 
+        {isLife && coreRuleBroken && (
+          <TextField
+            icon={<Heart size={18} />}
+            label="Что происходило перед этим?"
+            value={day.choiceContext || ''}
+            disabled={!editable}
+            placeholder="Без обвинений. Только ситуация, триггер и что поможет вернуться к своему выбору."
+            onChange={(choiceContext) => onChange({ ...day, choiceContext })}
+          />
+        )}
+
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <NumberField icon={<Utensils size={18} />} label="Калории" value={day.calories} disabled={!editable} min="0" onChange={(value) => onChange({ ...day, calories: value })} />
           <NumberField icon={<BatteryCharging size={18} />} label="Активные калории" value={day.activeCalories} disabled={!editable} min="0" onChange={(value) => onChange({ ...day, activeCalories: value })} />
@@ -1729,7 +1869,11 @@ function TodayPanel({
         </div>
 
         {isLife && (
-          <NumberField icon={<BookOpen size={18} />} label="Чтение, минуты" value={day.readingMinutes} disabled={!editable} min="0" onChange={(value) => onChange({ ...day, readingMinutes: value })} />
+          <GrowthActionTracker
+            actions={day.growthActions || []}
+            disabled={!editable}
+            onChange={(growthActions) => onChange({ ...day, growthActions })}
+          />
         )}
 
         <AnxietyTracker
@@ -1782,6 +1926,45 @@ function TodayPanel({
             <CheckCircle2 size={18} />
             {weeklyRequired ? 'Сначала закрой неделю' : evaluation.canFix ? 'Закрыть день' : 'Заполнить день полностью'}
           </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function GrowthActionTracker({ actions, disabled, onChange }) {
+  const updateAction = (id, patch) => onChange(actions.map((item) => item.id === id ? { ...item, ...patch } : item));
+  const removeAction = (id) => onChange(actions.filter((item) => item.id !== id));
+  return (
+    <section className="border border-[#c9bff0] bg-[#f7f5ff] p-4 rounded-lg">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2 font-black text-[#51459f]"><Zap size={19} />Действия роста</div>
+          <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">Добавляй только реальные действия. Они необязательны каждый день, но именно из них соберётся путь за 120 дней.</p>
+        </div>
+        {!disabled && (
+          <button type="button" onClick={() => onChange([...actions, createGrowthAction()])} className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-2 bg-[#6657c8] px-4 py-2 font-black text-white shadow-sm transition hover:bg-[#5548aa] rounded-md"><Plus size={18} />Добавить действие</button>
+        )}
+      </div>
+      {actions.length === 0 ? (
+        <div className="mt-4 border border-dashed border-[#c9bff0] bg-white/70 p-4 text-sm font-bold text-[#685f8f] rounded-md">Сегодня действия роста пока не добавлены.</div>
+      ) : (
+        <div className="mt-4 grid gap-3">
+          <AnimatePresence initial={false}>
+            {actions.map((item, index) => (
+              <motion.article key={item.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }} className="border border-[#d9d3f3] bg-white p-4 shadow-sm rounded-lg">
+                <div className="mb-3 flex items-center justify-between gap-3"><div className="text-sm font-black text-[#51459f]">Действие {index + 1}</div>{!disabled && <button type="button" onClick={() => removeAction(item.id)} title="Удалить действие" className="grid h-9 w-9 place-items-center border border-rose-200 bg-rose-50 text-rose-600 rounded-md"><Trash2 size={17} /></button>}</div>
+                <div className="grid gap-3 lg:grid-cols-[0.75fr_1.25fr]">
+                  <label className="border border-[#e1dcf4] bg-[#faf9ff] p-3 rounded-md"><span className="mb-2 block text-xs font-bold text-slate-500">Направление</span><select value={item.category} disabled={disabled} onChange={(event) => updateAction(item.id, { category: event.target.value })} className="w-full bg-transparent text-sm font-black text-slate-900 outline-none disabled:text-slate-500">{GROWTH_CATEGORIES.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}</select></label>
+                  <label className="border border-[#e1dcf4] bg-[#faf9ff] p-3 rounded-md"><span className="mb-2 block text-xs font-bold text-slate-500">Что конкретно сделал?</span><input value={item.text} disabled={disabled} onChange={(event) => updateAction(item.id, { text: event.target.value })} placeholder="Например: провёл съёмку, выступил на занятии, разобрал рабочую задачу" className="w-full bg-transparent text-sm font-bold text-slate-950 outline-none placeholder:text-slate-400 disabled:text-slate-500" /></label>
+                </div>
+                <div className="mt-3 grid gap-3 lg:grid-cols-[0.75fr_1.25fr]">
+                  <div className="border border-[#e1dcf4] bg-[#faf9ff] p-3 rounded-md"><span className="mb-2 block text-xs font-bold text-slate-500">Масштаб действия</span><div className="grid grid-cols-3 gap-1">{GROWTH_IMPACTS.map((impact) => <button key={impact.id} type="button" disabled={disabled} onClick={() => updateAction(item.id, { impact: impact.id })} className={`min-h-[38px] border px-2 text-xs font-black rounded-md ${item.impact === impact.id ? 'border-[#6657c8] bg-[#6657c8] text-white' : 'border-[#ddd8ef] bg-white text-slate-600'}`}>{impact.label}</button>)}</div></div>
+                  <label className="border border-[#e1dcf4] bg-[#faf9ff] p-3 rounded-md"><span className="mb-2 block text-xs font-bold text-slate-500">Результат или следующий шаг <span className="font-semibold">(необязательно)</span></span><input value={item.outcome} disabled={disabled} onChange={(event) => updateAction(item.id, { outcome: event.target.value })} placeholder="Что получилось или что продолжить" className="w-full bg-transparent text-sm font-semibold text-slate-950 outline-none placeholder:text-slate-400 disabled:text-slate-500" /></label>
+                </div>
+              </motion.article>
+            ))}
+          </AnimatePresence>
         </div>
       )}
     </section>
@@ -1893,7 +2076,8 @@ function AnxietyScale({ label, value, disabled, color, onChange }) {
 function DailyWinField({ category, value, disabled, onCategoryChange, onChange }) {
   return (
     <section className="border border-[#f4c76e] bg-[#fff8e8] p-4 shadow-sm rounded-lg">
-      <div className="mb-3 flex items-center gap-2 font-black text-[#8b5416]"><Medal size={20} />Победа дня</div>
+      <div className="mb-1 flex items-center gap-2 font-black text-[#8b5416]"><Medal size={20} />Доказательство доверия к себе</div>
+      <p className="mb-3 text-sm font-semibold leading-6 text-slate-600">Самооценка растёт не от уговоров, а от фактов, которые ты сам видишь.</p>
       <div className="grid gap-3 lg:grid-cols-[0.72fr_1.28fr]">
         <label className="border border-[#efd59e] bg-white/80 p-3 rounded-md">
           <span className="mb-2 block text-xs font-bold text-slate-500">Направление роста</span>
@@ -1903,15 +2087,15 @@ function DailyWinField({ category, value, disabled, onCategoryChange, onChange }
           </select>
         </label>
         <label className="border border-[#efd59e] bg-white/80 p-3 rounded-md">
-          <span className="mb-2 block text-xs font-bold text-slate-500">Какое действие сегодня доказало, что ты меняешься?</span>
-          <textarea value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} placeholder="Один конкретный факт — маленький или большой" className="h-20 w-full resize-none bg-transparent text-sm font-semibold leading-6 text-slate-950 outline-none placeholder:text-slate-400 disabled:text-slate-500" />
+          <span className="mb-2 block text-xs font-bold text-slate-500">Что сегодня доказало, что я могу себе доверять?</span>
+          <textarea value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} placeholder="Один конкретный факт, маленький или большой" className="h-20 w-full resize-none bg-transparent text-sm font-semibold leading-6 text-slate-950 outline-none placeholder:text-slate-400 disabled:text-slate-500" />
         </label>
       </div>
     </section>
   );
 }
 
-function HabitTracker({ habits, values, disabled, kept, answered, onChange, onAdd, onRemove }) {
+function HabitTracker({ habits, values, disabled, onChange, onAdd, onRemove }) {
   const [showSettings, setShowSettings] = useState(false);
   const [newHabit, setNewHabit] = useState('');
   const addHabit = () => {
@@ -1924,10 +2108,10 @@ function HabitTracker({ habits, values, disabled, kept, answered, onChange, onAd
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="flex items-center gap-2 text-sm font-black text-slate-700">
-            <Settings2 size={18} />
-            Привычки дня
+            <ShieldCheck size={18} />
+            Нерушимые правила
           </div>
-          <div className="mt-1 text-xs font-bold text-slate-500">Удержано {kept} · отмечено {answered}/{habits.length}</div>
+          <div className="mt-1 text-xs font-bold text-slate-500">Алкоголь и сладкое нельзя удалить. Дополнительные правила остаются гибкими.</div>
         </div>
         <button type="button" disabled={disabled} onClick={() => setShowSettings((value) => !value)} className="inline-flex items-center gap-2 border border-[#cbdde2] bg-white px-3 py-2 text-sm font-black text-[#315f6a] disabled:opacity-50 rounded-md">
           <Settings2 size={15} />
@@ -1945,7 +2129,7 @@ function HabitTracker({ habits, values, disabled, kept, answered, onChange, onAd
                 addHabit();
               }
             }}
-            placeholder="Например: Без музыки"
+            placeholder="Дополнительное правило"
             className="min-w-0 flex-1 border border-[#bcd3d8] bg-white px-3 py-2 font-semibold text-slate-950 outline-none focus:border-[#40a7b8] rounded-md"
           />
           <button type="button" onClick={addHabit} disabled={!newHabit.trim()} title="Добавить привычку" className="grid h-11 w-11 shrink-0 place-items-center bg-[#126879] text-white disabled:bg-slate-300 rounded-md">
@@ -1963,7 +2147,7 @@ function HabitTracker({ habits, values, disabled, kept, answered, onChange, onAd
             disabled={disabled}
             positiveLabel="Да"
             onChange={(value) => onChange(habit.id, value)}
-            onRemove={showSettings ? () => onRemove(habit.id) : null}
+            onRemove={showSettings && !CORE_HABIT_IDS.includes(habit.id) ? () => onRemove(habit.id) : null}
           />
         ))}
       </div>
@@ -2171,7 +2355,7 @@ function PathPanel({ days, scenario, activeDayIndex, currentDayIndex, onSelect, 
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
         <PathInsight icon={<Flame size={18} />} label={isLife ? 'Чистая серия' : 'Серия'} value={`${isLife ? stats.cleanStreak : stats.streak} дн`} />
-        <PathInsight icon={<Medal size={18} />} label={isLife ? 'Победы дня' : 'Доказательства'} value={isLife ? stats.dailyWins.length : stats.proofCount} />
+        <PathInsight icon={<Zap size={18} />} label={isLife ? 'Действия роста' : 'Доказательства'} value={isLife ? stats.growthActions.length : stats.proofCount} />
         <PathInsight icon={<CalendarDays size={18} />} label="Закрытие пути" value={`${stats.completionRate}%`} />
       </div>
 
@@ -2211,13 +2395,13 @@ const STAT_METRICS = [
   { id: 'anxiety', label: 'Тревожные ситуации', icon: Brain },
   { id: 'activity', label: 'Шаги и активность', icon: Footprints },
   { id: 'habits', label: 'Привычки', icon: CheckCircle2 },
-  { id: 'reading', label: 'Чтение', icon: BookOpen },
-  { id: 'wins', label: 'Победы дня', icon: Medal },
+  { id: 'growth', label: 'Действия роста', icon: Zap },
+  { id: 'wins', label: 'Доверие к себе', icon: Medal },
   { id: 'journey', label: 'Весь путь', icon: Target },
 ];
 
 function ModernDashboard(props) {
-  const { days, stats, currentWeek, weeks, scenario, habits, profile, range, onRangeChange, onProfileChange } = props;
+  const { days, stats, currentWeek, weeks, scenario, habits, profile, careerDecision, range, onRangeChange, onProfileChange } = props;
   const [showFilters, setShowFilters] = useState(false);
   const [visibleMetrics, setVisibleMetrics] = useState(['energy']);
   if (scenario !== 'life') return <LegacyDashboard {...props} />;
@@ -2269,6 +2453,7 @@ function ModernDashboard(props) {
       </div>
 
       <GoalPulse stats={stats} profile={profile} currentDayNumber={lastElapsedDay} />
+      <IdentityProgress stats={stats} currentWeek={currentWeek} careerDecision={careerDecision} />
 
       {hasMetric('energy') && <EnergyOverview stats={periodStats} days={visibleRecordedDays} profile={profile} />}
       {hasMetric('weight') && (
@@ -2293,13 +2478,10 @@ function ModernDashboard(props) {
       {hasMetric('habits') && (
         <ChartCard icon={<CheckCircle2 size={18} />} title="Привычки" subtitle={`${periodStats.cleanStreak} дней текущей серии`} aside={<span className="text-sm font-black text-[#0d7ea5]">{habits.filter((habit) => habit.active !== false).length} активных</span>}>
           <HabitMatrix days={visibleDays} habits={habits} />
+          <CommitmentContextList days={periodStats.choiceContexts} />
         </ChartCard>
       )}
-      {hasMetric('reading') && (
-        <ChartCard icon={<BookOpen size={18} />} title="Чтение" subtitle={`${(periodStats.readingMinutes / 60).toFixed(1)} ч за период`} aside={<span className="text-sm font-black text-[#16865f]">{periodStats.readingDays} дней</span>}>
-          <ReadingProgress days={visibleRecordedDays} />
-        </ChartCard>
-      )}
+      {hasMetric('growth') && <GrowthStatsPanel actions={periodStats.growthActions} />}
       {hasMetric('wins') && <VictoryStatsPanel wins={periodStats.dailyWins} />}
       {hasMetric('journey') && (
         <div className="grid gap-4 xl:grid-cols-2">
@@ -2329,7 +2511,7 @@ function GoalPulse({ stats, profile, currentDayNumber }) {
       <PulseMetric label="До финала" value={`${Math.max(0, TOTAL_DAYS - currentDayNumber)} дней`} accent="#64d8ff" />
       <PulseMetric label="Вес сейчас" value={currentWeight ? `${currentWeight} кг` : 'Нет отметки'} accent="#7cf0bf" />
       <PulseMetric label="До 65 кг" value={remaining === null ? 'Нужен вес' : `${remaining.toFixed(1)} кг`} accent="#ffcb6b" />
-      <PulseMetric label="Доказательств роста" value={`${stats.dailyWins.length}`} accent="#ff8b7b" />
+      <PulseMetric label="Доверие к себе" value={`${stats.selfTrustScore}%`} accent="#ff8b7b" />
     </section>
   );
 }
@@ -2340,6 +2522,63 @@ function PulseMetric({ label, value, accent }) {
       <div className="text-xs font-bold text-sky-100">{label}</div>
       <div className="mt-1 text-xl font-black">{value}</div>
     </div>
+  );
+}
+
+function IdentityProgress({ stats, currentWeek, careerDecision }) {
+  const careerStatus = careerDecision?.status || 'pending';
+  const alcohol = stats.habitStats.find((habit) => habit.id === 'alcohol');
+  const sweet = stats.habitStats.find((habit) => habit.id === 'sweet');
+  const actorDone = currentWeek?.actingSessions || 0;
+  return (
+    <section className="border border-[#c9dce8] bg-white p-4 shadow-sm rounded-lg">
+      <div className="mb-4 flex items-center gap-2 text-lg font-black text-[#102a43]"><Target size={20} className="text-[#ef5f42]" />Четыре результата, которые должны стать видны</div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MissionMetric icon={<BadgeCheck size={19} />} label="Карьерный курс" value={CAREER_DECISIONS[careerStatus].title} detail={`${stats.konturActions.length} действий в Контуре · ${stats.oneCActions.length} по 1С`} tone="blue" />
+        <MissionMetric icon={<Scale size={19} />} label="Тело" value={stats.lastWeight ? `${stats.lastWeight} кг → 65 кг` : 'Нужна первая отметка'} detail={`Алкоголь ${alcohol?.kept || 0}/${alcohol?.answered || 0} · сладкое ${sweet?.kept || 0}/${sweet?.answered || 0}`} tone="green" />
+        <MissionMetric icon={<Drama size={19} />} label="Актёрское мастерство" value={`${actorDone}/2 на этой неделе`} detail={`${stats.actingSessions.length} занятий за весь путь`} tone="pink" />
+        <MissionMetric icon={<Camera size={19} />} label="Фотография" value={stats.photoActions.length ? `${stats.photoActions.length} действий` : 'Первая съёмка впереди'} detail="Цель: минимум одна настоящая съёмка" tone="amber" />
+      </div>
+    </section>
+  );
+}
+
+function MissionMetric({ icon, label, value, detail, tone }) {
+  const tones = {
+    blue: 'border-[#b8d8ee] bg-[#f4faff] text-[#0d7ea5]',
+    green: 'border-[#b8e0cb] bg-[#f1fbf5] text-[#16865f]',
+    pink: 'border-[#edbfd0] bg-[#fff4f8] text-[#bf4c73]',
+    amber: 'border-[#efd2a8] bg-[#fff8ed] text-[#b56b1f]',
+  };
+  return (
+    <div className={`border p-3 rounded-md ${tones[tone]}`}>
+      <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide">{icon}{label}</div>
+      <div className="mt-2 text-lg font-black leading-6 text-slate-950">{value}</div>
+      <div className="mt-1 text-xs font-bold leading-5 text-slate-500">{detail}</div>
+    </div>
+  );
+}
+
+function GrowthStatsPanel({ actions }) {
+  const counts = GROWTH_CATEGORIES.map((category) => ({
+    ...category,
+    count: actions.filter((item) => item.category === category.id).length,
+  })).filter((category) => category.count > 0);
+  return (
+    <section className="border border-[#c9bff0] bg-[#f7f5ff] p-4 shadow-sm rounded-lg">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div><div className="flex items-center gap-2 font-black text-[#51459f]"><Zap size={19} />Действия роста</div><div className="mt-1 text-2xl font-black text-slate-950">{actions.length} фактов движения</div></div>
+        <div className="flex flex-wrap gap-2">{counts.map((category) => <span key={category.id} className="border bg-white px-3 py-2 text-xs font-black rounded-md" style={{ borderColor: `${category.color}55`, color: category.color }}>{category.label}: {category.count}</span>)}</div>
+      </div>
+      <div className="mt-4 grid gap-2 md:grid-cols-2">
+        {[...actions].reverse().map((item) => {
+          const category = GROWTH_CATEGORIES.find((option) => option.id === item.category);
+          const impact = GROWTH_IMPACTS.find((option) => option.id === item.impact);
+          return <div key={`${item.day}-${item.id}`} className="border border-[#ded8f4] bg-white p-3 rounded-md"><div className="text-xs font-black" style={{ color: category?.color || '#51459f' }}>День {item.day} · {category?.label || 'Другое'} · {impact?.label || 'Шаг'}</div><div className="mt-1 text-sm font-bold leading-6 text-slate-800">{item.text}</div>{item.outcome && <div className="mt-1 text-xs font-semibold leading-5 text-slate-500">{item.outcome}</div>}</div>;
+        })}
+        {!actions.length && <div className="border border-dashed border-[#c9bff0] bg-white/70 p-4 text-sm font-bold text-slate-500 rounded-md">Добавленные действия появятся здесь и попадут в итоговый экспорт.</div>}
+      </div>
+    </section>
   );
 }
 
@@ -2471,7 +2710,7 @@ function VictoryStatsPanel({ wins }) {
   const counts = WIN_CATEGORIES.map((category) => ({ ...category, count: wins.filter((day) => day.dailyWinCategory === category.id).length })).filter((item) => item.count);
   return (
     <section className="border border-[#f0cf8c] bg-[#fffaf0] p-4 shadow-sm rounded-lg">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex items-center gap-2 font-black text-[#8b5416]"><Medal size={19} />Победы дня</div><div className="mt-1 text-2xl font-black text-slate-950">{wins.length} доказательств роста</div></div><div className="flex flex-wrap gap-2">{counts.map((item) => <span key={item.id} className="border border-[#efd59e] bg-white px-3 py-2 text-xs font-black text-[#8b5416] rounded-md">{item.label}: {item.count}</span>)}</div></div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex items-center gap-2 font-black text-[#8b5416]"><Medal size={19} />Доверие к себе</div><div className="mt-1 text-2xl font-black text-slate-950">{wins.length} доказательств</div></div><div className="flex flex-wrap gap-2">{counts.map((item) => <span key={item.id} className="border border-[#efd59e] bg-white px-3 py-2 text-xs font-black text-[#8b5416] rounded-md">{item.label}: {item.count}</span>)}</div></div>
       <div className="mt-4 grid gap-2 md:grid-cols-2">
         {[...wins].reverse().map((day) => <div key={day.day} className="border border-[#efd9ad] bg-white p-3 rounded-md"><div className="text-xs font-black text-[#a6631a]">День {day.day} · {WIN_CATEGORIES.find((item) => item.id === day.dailyWinCategory)?.label || 'Победа'}</div><div className="mt-1 text-sm font-semibold leading-6 text-slate-700">{day.dailyWinText}</div></div>)}
         {!wins.length && <div className="border border-dashed border-[#efd59e] bg-white/70 p-4 text-sm font-bold text-slate-500 rounded-md">Первая победа появится после закрытия дня.</div>}
@@ -2522,9 +2761,7 @@ function LegacyDashboard({ days, stats, currentWeek, weeks, scenario, habits, pr
             <ChartCard icon={<CheckCircle2 size={18} />} title="Привычки" subtitle={`${stats.cleanStreak} дней чистой серии`} aside={<span className="text-sm font-black text-[#247184]">{habits.length} всего</span>}>
               <HabitMatrix days={visibleDays} habits={habits} />
             </ChartCard>
-            <ChartCard icon={<BookOpen size={18} />} title="Чтение" subtitle={`${(stats.readingMinutes / 60).toFixed(1)} ч`} aside={<span className="text-sm font-black text-[#12676a]">{stats.readingDays} дн.</span>}>
-              <ReadingProgress days={visibleRecordedDays} />
-            </ChartCard>
+            <GrowthStatsPanel actions={stats.growthActions} />
           </>
         ) : (
           <>
@@ -2676,7 +2913,8 @@ function ResultCounters({ stats, scenario }) {
             <WeekMetric label="Чистая серия" value={`${stats.cleanStreak} дн`} />
             <WeekMetric label="Дни в дефиците" value={stats.deficitDays} />
             <WeekMetric label="Средние шаги" value={stats.avgSteps.toLocaleString('ru-RU')} />
-            <WeekMetric label="Победы дня" value={stats.dailyWins.length} />
+            <WeekMetric label="Доверие к себе" value={`${stats.selfTrustScore}%`} />
+            <WeekMetric label="Действия роста" value={stats.growthActions.length} />
             <WeekMetric label="Ситуации тревоги" value={stats.anxietyEvents.length} />
             <WeekMetric label="Пустые дни" value={stats.emptyDays} />
           </>
@@ -2845,18 +3083,6 @@ function OfferProgress({ days }) {
   return <LineChartSvg data={cumulative} color="#4f8fb9" fill="#eaf5fb" unit="ч" />;
 }
 
-function ReadingProgress({ days }) {
-  const closed = days.filter((day) => day.result);
-  if (!closed.length) return <EmptyChart text="Траектория чтения появится после первого дня" />;
-  const cumulative = [];
-  closed.reduce((sum, day) => {
-    const next = sum + num(day.readingMinutes);
-    cumulative.push({ day: day.day, value: Number((next / 60).toFixed(1)) });
-    return next;
-  }, 0);
-  return <LineChartSvg data={cumulative} color="#4f8fb9" fill="#eaf5fb" unit="ч" />;
-}
-
 function HabitMatrix({ days, habits }) {
   const filled = days.filter((day) => day.result).slice(-30);
   if (!filled.length) return <EmptyChart text="Чистый курс появится после первого закрытого дня" />;
@@ -2887,6 +3113,18 @@ function HabitMatrix({ days, habits }) {
   );
 }
 
+function CommitmentContextList({ days }) {
+  if (!days.length) return <div className="mt-3 border border-[#b8e0cb] bg-[#f1fbf5] p-3 text-sm font-bold text-[#126b55] rounded-md">За выбранный период возвраты к старому выбору не зафиксированы.</div>;
+  return (
+    <details className="mt-3 border border-[#f0c8c8] bg-[#fff7f7] rounded-md">
+      <summary className="cursor-pointer px-3 py-3 text-sm font-black text-[#8d3333]">Контексты возврата: {days.length}</summary>
+      <div className="grid gap-2 border-t border-[#f0d5d5] p-3">
+        {[...days].reverse().map((day) => <div key={day.day} className="text-sm font-semibold leading-6 text-slate-700"><strong className="text-[#8d3333]">День {day.day}:</strong> {day.choiceContext}</div>)}
+      </div>
+    </details>
+  );
+}
+
 function WeeklyPanel({ week, scenario }) {
   const isLife = scenario === 'life';
   return (
@@ -2910,7 +3148,8 @@ function WeeklyPanel({ week, scenario }) {
           <>
             <WeekMetric label="Средний энергобаланс" value={`${week.avgEnergyBalance > 0 ? '+' : ''}${week.avgEnergyBalance} ккал`} />
             <WeekMetric label="Шаги" value={week.steps.toLocaleString('ru-RU')} />
-            <WeekMetric label="Победы дня" value={week.dailyWins} />
+            <WeekMetric label="Актёрские занятия" value={`${week.actingSessions}/2`} />
+            <WeekMetric label="Действия роста" value={week.growthActions} />
           </>
         ) : (
           <>
@@ -3068,7 +3307,7 @@ function FinalReview({ review, onChange, scenario }) {
         <Trophy size={54} className="text-[#d18b47]" />
       </div>
       <div className="grid gap-3 md:grid-cols-2">
-        <ReflectionField label={isLife ? 'Что стало моей новой нормой?' : 'Что получилось по рынку/офферу?'} value={review.offer} onChange={(value) => onChange({ offer: value })} placeholder={isLife ? 'Трезвость, вкус, чтение, решения, ритм жизни.' : 'Оффер, собесы, уровень, рынок.'} />
+        <ReflectionField label={isLife ? 'Что стало моей новой нормой?' : 'Что получилось по рынку/офферу?'} value={review.offer} onChange={(value) => onChange({ offer: value })} placeholder={isLife ? 'Чистое питание, действия роста, проявленность и доверие к себе.' : 'Оффер, собесы, уровень, рынок.'} />
         <ReflectionField label="Что получилось по форме?" value={review.body} onChange={(value) => onChange({ body: value })} placeholder="Вес, форма, питание, тело." />
         <ReflectionField label="Почему результат именно такой?" value={review.why} onChange={(value) => onChange({ why: value })} placeholder={isLife ? 'Какие условия помогли измениться и где остались риски.' : 'Главные причины результата.'} />
         <ReflectionField label="Следующий этап" value={review.next} onChange={(value) => onChange({ next: value })} placeholder="Что начинается после 120 дней." />
@@ -3137,27 +3376,35 @@ function ConfirmCloseDay({ day, evaluation, onCancel, onConfirm }) {
   );
 }
 
-function ConfirmReset({ currentScenario, onCancel, onConfirm }) {
-  const [selectedScenario, setSelectedScenario] = useState(null);
+function ConfirmStart({ onCancel, onConfirm }) {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 grid place-items-center bg-slate-900/35 p-4 backdrop-blur-sm">
-      <motion.section initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} className="w-full max-w-2xl border border-[#cbdde1] bg-[#ffffff] p-5 shadow-2xl rounded-lg">
-        <h2 className="text-2xl font-black text-slate-950">Какой путь начать заново?</h2>
-        <p className="mt-3 leading-7 text-slate-600">
-          Сейчас активен сценарий «{SCENARIOS[currentScenario].shortTitle}». Выбери новый сценарий осознанно: после подтверждения текущий прогресс будет заменён стартом с сегодняшней даты.
-        </p>
-        <div className="mt-5">
-          <ScenarioPicker selected={selectedScenario} onSelect={setSelectedScenario} />
-        </div>
+      <motion.section initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} className="w-full max-w-lg border border-[#f0b6a9] bg-white p-5 shadow-2xl rounded-lg">
+        <div className="grid h-12 w-12 place-items-center bg-[#fff0ec] text-[#ef5f42] rounded-md"><ShieldCheck size={25} /></div>
+        <h2 className="mt-4 text-2xl font-black text-slate-950">Запустить 120 дней сегодня?</h2>
+        <p className="mt-3 leading-7 text-slate-600">После подтверждения дата станет неизменяемой. Кнопки сброса и повторного старта не будет. Все дни, включая сложные и пропущенные, останутся частью настоящего пути.</p>
+        <div className="mt-4 border border-[#c9e5d5] bg-[#f1fbf5] p-3 text-sm font-bold leading-6 text-[#126b55] rounded-md"><Heart size={17} className="mr-2 inline" />Ты проходишь этот путь не потому, что с тобой что-то не так. Ты выбираешь действовать, потому что любишь себя и свою жизнь.</div>
         <div className="mt-5 grid grid-cols-2 gap-3">
-          <button onClick={onCancel} className="border border-[#d5e3e5] bg-white px-4 py-3 font-black text-slate-700 rounded-md">Оставить</button>
-          <button
-            onClick={() => onConfirm(selectedScenario)}
-            disabled={!selectedScenario}
-            className="bg-slate-950 px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:bg-slate-300 rounded-md"
-          >
-            Новый старт
-          </button>
+          <button type="button" onClick={onCancel} className="border border-[#d5e3e5] bg-white px-4 py-3 font-black text-slate-700 rounded-md">Ещё не сейчас</button>
+          <button type="button" onClick={onConfirm} className="bg-[#ef5f42] px-4 py-3 font-black text-white rounded-md">Да, это мой выбор</button>
+        </div>
+      </motion.section>
+    </motion.div>
+  );
+}
+
+function ConfirmCareerDecision({ choice, onCancel, onConfirm }) {
+  const isPassed = choice === 'passed';
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 grid place-items-center bg-slate-900/35 p-4 backdrop-blur-sm">
+      <motion.section initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} className="w-full max-w-lg border border-[#cbdde1] bg-white p-5 shadow-2xl rounded-lg">
+        <div className={`grid h-12 w-12 place-items-center text-white rounded-md ${isPassed ? 'bg-[#16a36a]' : 'bg-[#6657c8]'}`}>{isPassed ? <BadgeCheck size={25} /> : <Route size={25} />}</div>
+        <h2 className="mt-4 text-2xl font-black text-slate-950">{isPassed ? 'Испытательный срок пройден?' : 'Зафиксировать смену маршрута?'}</h2>
+        <p className="mt-3 leading-7 text-slate-600">{isPassed ? 'После подтверждения главная карьерная цель изменится на закрепление и рост внутри Контура.' : 'После подтверждения приложение сохранит результат честно и переключит карьерный курс на мощное возвращение к 1С. Это не обнуление марафона.'}</p>
+        <div className="mt-4 border border-[#dbe7ee] bg-[#f8fbfd] p-3 text-sm font-bold leading-6 text-slate-600 rounded-md">Решение фиксируется один раз и попадёт в финальную историю 120 дней.</div>
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <button type="button" onClick={onCancel} className="border border-[#d5e3e5] bg-white px-4 py-3 font-black text-slate-700 rounded-md">Нет, проверить</button>
+          <button type="button" onClick={onConfirm} className={`px-4 py-3 font-black text-white rounded-md ${isPassed ? 'bg-[#16a36a]' : 'bg-[#6657c8]'}`}>Да, зафиксировать</button>
         </div>
       </motion.section>
     </motion.div>
