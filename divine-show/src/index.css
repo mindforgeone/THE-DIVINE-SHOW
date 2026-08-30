@@ -5,16 +5,26 @@
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #102a43;
-  background: #f3f8fc;
+  background: #f4f7f8;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: #f4f7f8;
+  scroll-behavior: smooth;
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #f3f8fc;
+  background: #f4f7f8;
+  overflow-x: hidden;
 }
 
 button,
@@ -32,6 +42,128 @@ input[type="range"] {
   accent-color: #0d7ea5;
 }
 
-.custom-scrollbar::-webkit-scrollbar { width: 4px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+button,
+a,
+input,
+textarea,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgb(13 143 185 / 35%);
+  outline-offset: 2px;
+}
+
+.icon-command {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  border: 1px solid #d8e3e7;
+  border-radius: 6px;
+  background: #fff;
+  color: #334e68;
+  transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.icon-command:hover {
+  background: #edf9fd;
+  color: #0d7ea5;
+}
+
+.icon-command:active {
+  transform: scale(.96);
+}
+
+.icon-command.danger {
+  border-color: #ffd5d1;
+  color: #c7463b;
+}
+
+.field-control {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid #d8e3e7;
+  border-radius: 6px;
+  background: #f9fbfb;
+  padding: 10px 12px;
+  color: #102a43;
+  font-weight: 700;
+  outline: none;
+}
+
+.field-control:focus {
+  border-color: #0d8fb9;
+  background: #fff;
+}
+
+.field-control:disabled {
+  cursor: not-allowed;
+  color: #829ab1;
+  background: #eef2f4;
+}
+
+.field-box {
+  display: block;
+  min-width: 0;
+  border: 1px solid #dce6e9;
+  border-radius: 6px;
+  background: #f7f9fa;
+  padding: 10px 12px;
+  color: #627d98;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.form-label {
+  min-width: 0;
+  color: #486581;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.journey-map-scroll,
+.custom-scrollbar {
+  scrollbar-color: #9ebbc5 transparent;
+  scrollbar-width: thin;
+}
+
+.journey-map-scroll::-webkit-scrollbar,
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.journey-map-scroll::-webkit-scrollbar-track,
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.journey-map-scroll::-webkit-scrollbar-thumb,
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 6px;
+  background: #9ebbc5;
+}
+
+.day-tile {
+  contain: layout paint;
+  min-width: 0;
+  transform: translateZ(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
