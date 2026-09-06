@@ -35,19 +35,18 @@ import {
   Zap,
 } from 'lucide-react';
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
-import { deleteDoc, doc, onSnapshot, runTransaction, serverTimestamp } from 'firebase/firestore';
-import { auth, db, firebaseConfigured, googleProvider } from './firebase';
+import { auth, firebaseConfigured, googleProvider } from './firebase';
+import { useMarathonStore } from './marathon/useMarathonStore';
+import { START_COMMITMENTS, acceptCommitments } from './marathon/commitments';
 import journeyDawn from './assets/journey-dawn.jpg';
 import {
   CALORIE_LIMIT,
   CALORIE_TARGET,
-  CLOUD_DOCUMENT_ID,
   COURAGE_CONTEXTS,
   DAY_RESULTS,
   GOAL_CADENCES,
   GOAL_COLORS,
   GOAL_TYPES,
-  LEGACY_DOCUMENT_IDS,
   TOTAL_DAYS,
   addDays,
   buildExport,
@@ -55,31 +54,26 @@ import {
   calculateEnergyBalance,
   calculateStats,
   clamp,
-  clearLegacyCache,
   createId,
-  createInitialState,
   evaluateDay,
   formatLongDate,
   formatShortDate,
   getCurrentDayIndex,
+  getDayResult,
+  hasDayData,
   isJourneyEnded,
   isWeeklyReviewComplete,
-  loadCachedState,
-  mergeStates,
   number,
-  saveCachedState,
   todayKey,
+  updateDayDraft,
 } from './marathon/model';
 
 function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(Boolean(auth));
   const [authError, setAuthError] = useState('');
-  const [cloudReady, setCloudReady] = useState(false);
-  const [cloudWritable, setCloudWritable] = useState(false);
-  const [syncState, setSyncState] = useState('idle');
-  const [state, setState] = useState(null);
-  const [activeDayIndex, setActiveDayIndex] = useState(0);
+  const { state, ready: cloudReady, syncState, error: storageError, starting, currentDate, start, commit, retry } = useMarathonStore(user);
+  const [activeDayIndex, setActiveDayIndex] = useState(null);
   const [view, setView] = useState('today');
   const [range, setRange] = useState('30');
   const [goalEditor, setGoalEditor] = useState(null);
@@ -88,93 +82,15 @@ function App() {
   const [confirmClose, setConfirmClose] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [celebration, setCelebration] = useState(null);
-  const cloudJsonRef = useRef('');
-  const loadedRef = useRef(false);
 
   useEffect(() => {
     if (!auth) return undefined;
     return onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
       setAuthLoading(false);
-      setState(null);
-      setCloudReady(false);
-      setCloudWritable(false);
-      cloudJsonRef.current = '';
-      loadedRef.current = false;
+      setActiveDayIndex(null);
     });
   }, []);
-
-  useEffect(() => {
-    if (!user || !db) return undefined;
-    let cancelled = false;
-    let unsubscribe = null;
-    const prepare = async () => {
-      clearLegacyCache(user.uid);
-      await Promise.all(LEGACY_DOCUMENT_IDS.map(async (documentId) => {
-        try {
-          await deleteDoc(doc(db, 'users', user.uid, 'trackers', documentId));
-        } catch {
-          // The new storage is isolated even if an old document cannot be removed offline.
-        }
-      }));
-      if (cancelled) return;
-      const cached = loadCachedState(user.uid);
-      const documentRef = doc(db, 'users', user.uid, 'trackers', CLOUD_DOCUMENT_ID);
-      unsubscribe = onSnapshot(documentRef, (snapshot) => {
-        const remoteState = snapshot.exists() ? snapshot.data().state : null;
-        const merged = mergeStates(remoteState, cached);
-        if (snapshot.exists()) cloudJsonRef.current = JSON.stringify(remoteState);
-        if (merged?.startDate && !loadedRef.current) {
-          setActiveDayIndex(getCurrentDayIndex(merged.startDate));
-          loadedRef.current = true;
-        }
-        setState((current) => mergeStates(merged, current));
-        setCloudReady(true);
-        setCloudWritable(true);
-        setSyncState(snapshot.metadata.hasPendingWrites ? 'saving' : 'synced');
-      }, (error) => {
-        setAuthError(error.message);
-        setState(cached);
-        setCloudReady(true);
-        setCloudWritable(false);
-        setSyncState('offline');
-      });
-    };
-    prepare();
-    return () => {
-      cancelled = true;
-      if (unsubscribe) unsubscribe();
-    };
-  }, [user]);
-
-  useEffect(() => {
-    if (!state || !user) return undefined;
-    saveCachedState(user.uid, state);
-    if (!db || !cloudReady || !cloudWritable) return undefined;
-    const serialized = JSON.stringify(state);
-    if (serialized === cloudJsonRef.current) return undefined;
-    const timeout = window.setTimeout(async () => {
-      try {
-        setSyncState('saving');
-        const documentRef = doc(db, 'users', user.uid, 'trackers', CLOUD_DOCUMENT_ID);
-        const merged = await runTransaction(db, async (transaction) => {
-          const snapshot = await transaction.get(documentRef);
-          const remote = snapshot.exists() ? snapshot.data().state : null;
-          const next = mergeStates(remote, state);
-          transaction.set(documentRef, { state: next, updatedAt: serverTimestamp() }, { merge: true });
-          return next;
-        });
-        cloudJsonRef.current = JSON.stringify(merged);
-        saveCachedState(user.uid, merged);
-        setState((current) => mergeStates(merged, current));
-        setSyncState('synced');
-      } catch (error) {
-        setSyncState('offline');
-        setAuthError(error instanceof Error ? error.message : 'Не удалось сохранить данные.');
-      }
-    }, 450);
-    return () => window.clearTimeout(timeout);
-  }, [state, user, cloudReady, cloudWritable]);
 
   const signIn = async () => {
     if (!auth || !firebaseConfigured) return setAuthError('Firebase не настроен.');
@@ -186,22 +102,21 @@ function App() {
     }
   };
 
-  const startJourney = () => {
-    const now = new Date().toISOString();
-    const next = createInitialState(todayKey(), now);
-    setState(next);
-    setActiveDayIndex(0);
-    setView('today');
+  const startJourney = async (commitments) => {
+    if (await start(commitments)) {
+      setActiveDayIndex(null);
+      setView('today');
+    }
   };
 
   if (authLoading) return <LoadingScreen text="Проверяю аккаунт" />;
   if (!user) return <LoginScreen onSignIn={signIn} error={authError} />;
-  if (!cloudReady) return <LoadingScreen text="Очищаю старый марафон" />;
-  if (!state?.contractAcceptedAt) return <StartScreen onStart={startJourney} onLogOut={() => signOut(auth)} />;
+  if (!cloudReady) return <LoadingScreen text="Загружаю историю" />;
+  if (!state?.contractAcceptedAt) return <StartScreen onStart={startJourney} starting={starting} error={storageError} onRetry={retry} onLogOut={() => signOut(auth)} />;
 
-  const currentDayIndex = getCurrentDayIndex(state.startDate);
+  const currentDayIndex = getCurrentDayIndex(state.startDate, currentDate);
   const currentDayNumber = currentDayIndex + 1;
-  const selectedIndex = clamp(activeDayIndex, 0, currentDayIndex);
+  const selectedIndex = clamp(activeDayIndex ?? currentDayIndex, 0, currentDayIndex);
   const selectedDay = state.days[selectedIndex];
   const journeyEnded = isJourneyEnded(state.startDate);
   const editable = selectedIndex === currentDayIndex && !selectedDay.result && !journeyEnded;
@@ -214,16 +129,13 @@ function App() {
   const weeklyReviewRequired = Boolean(weeklyReview);
   const finalReviewRequired = currentDayNumber === TOTAL_DAYS && !Object.values(state.finalReview || {}).filter((value) => typeof value === 'string').every((value) => value.trim().length >= 3);
 
-  const mutateState = (recipe) => {
-    const changedAt = new Date().toISOString();
-    setState((previous) => ({ ...recipe(previous, changedAt), updatedAtClient: changedAt }));
-  };
+  const mutateState = commit;
 
   const updateDay = (nextDay) => {
     if (!editable) return;
     mutateState((previous, changedAt) => ({
       ...previous,
-      days: previous.days.map((day, index) => index === selectedIndex ? { ...nextDay, draftUpdatedAt: changedAt, result: null, xp: 0, closedAt: null } : day),
+      days: previous.days.map((day, index) => index === selectedIndex && !day.result && day.date === todayKey() ? updateDayDraft(day, nextDay, changedAt) : day),
     }));
   };
 
@@ -240,7 +152,7 @@ function App() {
     if (!editable || !fresh.canClose || weeklyReviewRequired || finalReviewRequired) return;
     mutateState((previous, changedAt) => ({
       ...previous,
-      days: previous.days.map((day, index) => index === selectedIndex ? { ...day, result: fresh.id, score: fresh.score, xp: fresh.xp, closedAt: changedAt, draftSavedAt: day.draftSavedAt || changedAt, draftUpdatedAt: changedAt } : day),
+      days: previous.days.map((day, index) => index === selectedIndex ? { ...day, result: fresh.id, score: fresh.score, xp: fresh.xp, closedAt: changedAt, closureMode: 'manual', draftSavedAt: day.draftSavedAt || changedAt, draftUpdatedAt: changedAt } : day),
     }));
     setConfirmClose(false);
     setCelebration(fresh);
@@ -332,8 +244,10 @@ function App() {
       />
 
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-3 pb-24 pt-3 sm:px-5 lg:px-7">
+        {storageError && <div role="status" className="flex flex-wrap items-center justify-between gap-2 border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 rounded-md"><span>{storageError}</span><button type="button" onClick={retry} className="font-bold underline">Повторить синхронизацию</button></div>}
         <JourneyMap
           days={state.days}
+          goals={state.goals}
           currentDayIndex={currentDayIndex}
           selectedIndex={selectedIndex}
           startDate={state.startDate}
@@ -343,6 +257,7 @@ function App() {
 
         {view === 'today' ? (
           <>
+            {state.commitments && <CommitmentSummary commitments={state.commitments} />}
             <VisionStrip day={selectedDay} currentDayNumber={currentDayNumber} />
             <CareerStrip decision={state.careerDecision} onChoose={setCareerChoice} />
             <DailyEditor
@@ -413,36 +328,49 @@ function LoginScreen({ onSignIn, error }) {
   );
 }
 
-function StartScreen({ onStart, onLogOut }) {
-  const [accepted, setAccepted] = useState(false);
+function StartScreen({ onStart, starting, error, onRetry, onLogOut }) {
+  const [checked, setChecked] = useState({});
+  const [purpose, setPurpose] = useState('');
   const [confirming, setConfirming] = useState(false);
+  const acceptedCount = START_COMMITMENTS.filter((item) => checked[item.id]).length;
+  const accepted = Boolean(acceptCommitments(checked, purpose, new Date().toISOString()));
+  const confirmStart = () => {
+    const commitments = acceptCommitments(checked, purpose, new Date().toISOString());
+    if (!commitments || starting) return;
+    onStart(commitments);
+    setConfirming(false);
+  };
   return (
-    <div className="min-h-screen bg-[#f4f7f8]">
-      <section className="relative min-h-[58vh] overflow-hidden" style={{ backgroundImage: `url(${journeyDawn})`, backgroundPosition: 'center', backgroundSize: 'cover' }}>
+    <div className="min-h-screen bg-[#f4f7f8] pb-8">
+      <section className="relative overflow-hidden" style={{ backgroundImage: `url(${journeyDawn})`, backgroundPosition: 'center', backgroundSize: 'cover' }}>
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(248,252,253,0.98)_0%,rgba(248,252,253,0.88)_48%,rgba(248,252,253,0.12)_100%)]" />
-        <div className="relative mx-auto flex min-h-[58vh] max-w-7xl flex-col justify-center px-5 py-10">
-          <div className="text-sm font-black uppercase tracking-wide text-[#0d8fb9]">Новый марафон · чистая история</div>
-          <h1 className="mt-3 max-w-2xl text-5xl font-black leading-[1.05] text-[#102a43] sm:text-6xl">120 дней, которые останутся фактами</h1>
-          <p className="mt-5 max-w-xl text-lg font-semibold leading-8 text-slate-700">Карта каждого дня, собственные цели, автоматическая статистика и честная история без самонаказания.</p>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <button type="button" disabled={!accepted} onClick={() => setConfirming(true)} className="inline-flex min-h-[52px] items-center gap-2 bg-[#f06c5f] px-5 font-black text-white shadow-lg disabled:bg-slate-300 rounded-md"><Zap size={19} />Начать 120 дней</button>
-            <button type="button" onClick={onLogOut} className="inline-flex min-h-[52px] items-center gap-2 border border-[#d3e1e6] bg-white/90 px-5 font-black text-slate-700 rounded-md"><LogOut size={18} />Выйти</button>
-          </div>
+        <div className="relative mx-auto max-w-4xl px-5 py-10 sm:py-14">
+          <div className="flex items-center justify-between gap-3"><div className="text-sm font-black uppercase text-[#0d8fb9]">Мой осознанный выбор</div><button type="button" onClick={onLogOut} className="icon-command" title="Выйти"><LogOut size={18} /></button></div>
+          <h1 className="mt-4 max-w-xl text-4xl font-black leading-tight text-[#102a43] sm:text-5xl">120 дней перемен</h1>
+          <p className="mt-4 max-w-xl text-lg font-semibold leading-7 text-slate-700">Я выбираю свободу от старых привычек. Сильное тело, действия к цели и доверие к себе.</p>
+          <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm font-bold text-[#16865f]"><span>65 кг · форма и энергия</span><span>Ценность в работе</span><span>Свобода проявляться</span></div>
         </div>
       </section>
-      <div className="mx-auto grid max-w-7xl gap-4 px-4 py-7 md:grid-cols-3">
-        <StartPoint icon={<CalendarDays />} title="120 дат сразу" text="После старта карта строится от сегодняшней даты до финального дня." />
-        <StartPoint icon={<Target />} title="Цели меняются вместе с тобой" text="Добавляй дневные, недельные и итоговые цели. Каждая получает свою статистику." />
-        <StartPoint icon={<Heart />} title="Строго к выбору, бережно к себе" text="Возвраты остаются фактами пути, но не превращаются в оценку твоей ценности." />
-        <label className="md:col-span-3 flex cursor-pointer items-start gap-3 border border-[#cfe0e5] bg-white p-4 rounded-lg"><input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} className="mt-1 h-5 w-5 accent-[#f06c5f]" /><span className="font-bold leading-7 text-slate-700">Я понимаю: после подтверждения стартовая дата фиксируется, 120 календарных дней нельзя перезапустить или переписать задним числом.</span></label>
+      <div className="mx-auto max-w-4xl px-4 py-6 sm:px-5">
+        <div className="flex items-center justify-between gap-3"><h2 className="text-2xl font-black">Мои аскезы</h2><span className="shrink-0 text-sm font-bold text-[#16865f]">{acceptedCount} из {START_COMMITMENTS.length}</span></div>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Аскеза — добровольная практика самодисциплины ради выбранной цели. Здесь я принимаю конкретные обязательства на 120 календарных дней.</p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {START_COMMITMENTS.map((item, index) => <label key={item.id} className={`flex cursor-pointer items-start gap-3 border p-4 transition-colors rounded-lg ${checked[item.id] ? 'border-[#8dd6ad] bg-[#ecfbf3]' : 'border-[#d8e3e7] bg-white'}`}><input type="checkbox" aria-label={item.title} checked={Boolean(checked[item.id])} onChange={(event) => setChecked({ ...checked, [item.id]: event.target.checked })} className="mt-1 h-5 w-5 shrink-0 accent-[#16a36a]" /><span className="min-w-0"><span className="text-xs font-bold text-[#0d8fb9]">0{index + 1} · {item.metric}</span><strong className="mt-1 block text-base leading-6">{item.title}</strong><span className="mt-2 block text-sm leading-6 text-slate-600">{item.text}</span></span></label>)}
+        </div>
+        <label className="mt-6 block font-bold">Ради чего я прохожу эти 120 дней<textarea value={purpose} onChange={(event) => setPurpose(event.target.value)} maxLength={1000} placeholder="Какие изменения я хочу увидеть в своих действиях, теле и отношении к себе?" className="field-control mt-2 min-h-[100px] resize-y" /><span className="mt-1 block text-xs font-normal text-slate-500">Мой личный смысл · минимум 10 символов</span></label>
+        <div className="mt-5 border-y border-[#d8e3e7] py-4 text-sm leading-6 text-slate-600">Старт — {formatShortDate(todayKey())}. День 120 — {formatShortDate(addDays(todayKey(), TOTAL_DAYS - 1))}. Подтверждая, я фиксирую дату старта и эти обязательства на весь марафон.</div>
+        {error && <div role="alert" className="mt-4 text-sm text-rose-700">{error} <button type="button" onClick={onRetry} className="font-bold underline">Повторить синхронизацию</button></div>}
+        <button type="button" disabled={!accepted || starting} onClick={() => setConfirming(true)} className="mt-5 inline-flex min-h-[54px] w-full items-center justify-center gap-2 bg-[#16a36a] px-4 text-base font-black text-white disabled:bg-slate-300 rounded-md">{starting ? <Loader2 size={19} className="animate-spin" /> : <Zap size={19} />}{starting ? 'Подтверждаю старт…' : 'Принимаю обязательства. Начать'}</button>
+        <p className="mt-3 text-sm leading-6 text-slate-500">При физической зависимости от алкоголя прекращение употребления может потребовать помощи врача. Поддержка и лечение совместимы с этим выбором.</p>
+        <div className="mt-3 flex flex-wrap gap-4 text-xs text-[#0d7ea5]"><a href="https://bigenc.ru/c/asketizm-f52e39" target="_blank" rel="noreferrer" className="underline">Смысл аскезы: БРЭ</a><a href="https://www.niddk.nih.gov/health-information/diet-nutrition/changing-habits-better-health" target="_blank" rel="noreferrer" className="underline">Изменение привычек: NIDDK</a><a href="https://www.niaaa.nih.gov/publications/brochures-and-fact-sheets/understanding-alcohol-use-disorder" target="_blank" rel="noreferrer" className="underline">Об алкоголе и помощи: NIAAA</a></div>
       </div>
-      <AnimatePresence>{confirming && <SimpleConfirm title="Начать сегодня?" text={`День 1 будет ${formatLongDate(todayKey())}, день 120 — ${formatLongDate(addDays(todayKey(), TOTAL_DAYS - 1))}.`} confirm="Да, начать путь" onConfirm={onStart} onClose={() => setConfirming(false)} />}</AnimatePresence>
+      <AnimatePresence>{confirming && <SimpleConfirm title="Начать 120 дней?" text={`Все ${START_COMMITMENTS.length} обязательств приняты. Мой смысл: «${purpose.trim()}». Старт: ${formatLongDate(todayKey())}.`} confirm="Да, начинаю" disabled={!accepted || starting} onConfirm={confirmStart} onClose={() => setConfirming(false)} />}</AnimatePresence>
     </div>
   );
 }
 
-function StartPoint({ icon, title, text }) {
-  return <div className="border border-[#dbe5e9] bg-white p-4 rounded-lg"><span className="grid h-10 w-10 place-items-center bg-[#eaf8fd] text-[#0d8fb9] rounded-md">{icon}</span><h2 className="mt-3 text-lg font-black">{title}</h2><p className="mt-1 text-sm font-semibold leading-6 text-slate-600">{text}</p></div>;
+function CommitmentSummary({ commitments }) {
+  return <details className="border-y border-[#d8e3e7] py-3"><summary className="flex cursor-pointer items-center justify-between gap-3 text-sm font-bold text-[#16865f]"><span className="flex items-center gap-2"><Heart size={17} />Мой выбор на 120 дней</span><ChevronDown size={17} /></summary><p className="mt-3 font-semibold leading-6">{commitments.purpose}</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{commitments.items.map((item) => <div key={item.id}><h3 className="text-sm font-bold">{item.title}</h3><p className="mt-1 text-sm leading-6 text-slate-600">{item.text}</p></div>)}</div></details>;
 }
 
 function CompactHeader({ currentDay, progress, syncState, view, onView, onGoals, onExport, onLogOut }) {
@@ -459,7 +387,7 @@ function CompactHeader({ currentDay, progress, syncState, view, onView, onGoals,
           <NavButton active={view === 'today'} icon={<Home size={17} />} label="Сегодня" onClick={() => onView('today')} />
           <NavButton active={view === 'stats'} icon={<BarChart3 size={17} />} label="Статистика" onClick={() => onView('stats')} />
         </div>
-        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${syncState === 'offline' ? 'bg-rose-500' : syncState === 'saving' ? 'animate-pulse bg-amber-400' : 'bg-emerald-500'}`} title={syncState} />
+        <span role="status" aria-label={syncState === 'offline' ? 'Сохранено на устройстве, ожидает синхронизации' : syncState === 'saving' ? 'Сохраняю в облако' : 'Сохранено в облаке'} className={`h-2.5 w-2.5 shrink-0 rounded-full ${syncState === 'offline' ? 'bg-rose-500' : syncState === 'saving' ? 'animate-pulse bg-amber-400' : 'bg-emerald-500'}`} title={syncState === 'offline' ? 'Сохранено на устройстве' : syncState === 'saving' ? 'Сохраняю в облако' : 'Сохранено в облаке'} />
         <div className="relative">
           <button type="button" onClick={() => setMenuOpen((value) => !value)} className="grid h-10 w-10 place-items-center border border-[#d9e4e8] bg-white text-slate-700 rounded-md" title="Меню"><Menu size={19} /></button>
           <AnimatePresence>{menuOpen && <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="absolute right-0 top-12 z-50 w-52 border border-[#d9e4e8] bg-white p-2 shadow-xl rounded-lg"><MenuItem icon={<Target size={16} />} label="Цели" onClick={() => { onGoals(); setMenuOpen(false); }} /><MenuItem icon={<Download size={16} />} label="Экспорт" onClick={() => { onExport(); setMenuOpen(false); }} /><MenuItem icon={<LogOut size={16} />} label="Выйти" onClick={onLogOut} /></motion.div>}</AnimatePresence>
@@ -485,13 +413,13 @@ function MobileNavButton({ active, icon, label, onClick }) {
   return <button type="button" onClick={onClick} className={`flex min-h-[48px] flex-col items-center justify-center gap-1 text-[11px] font-black rounded-md ${active ? 'bg-[#eaf8fd] text-[#0d8fb9]' : 'text-slate-500'}`}>{icon}{label}</button>;
 }
 
-function JourneyMap({ days, currentDayIndex, selectedIndex, onSelect, stats }) {
+function JourneyMap({ days, goals, currentDayIndex, selectedIndex, onSelect, stats }) {
   const scrollerRef = useRef(null);
   const currentRef = useRef(null);
   useEffect(() => {
     const scroller = scrollerRef.current;
     const tile = currentRef.current;
-    if (scroller && tile) scroller.scrollTop = Math.max(0, tile.offsetTop - scroller.clientHeight / 2 + tile.clientHeight / 2);
+    if (scroller && tile) scroller.scrollTop = Math.max(0, scroller.scrollTop + tile.getBoundingClientRect().top - scroller.getBoundingClientRect().top - scroller.clientHeight / 2 + tile.clientHeight / 2);
   }, [currentDayIndex]);
   return (
     <section className="border border-[#d8e3e7] bg-white shadow-sm rounded-lg">
@@ -503,8 +431,9 @@ function JourneyMap({ days, currentDayIndex, selectedIndex, onSelect, stats }) {
         <div className="grid grid-cols-5 gap-2 sm:grid-cols-8 lg:grid-cols-12">
           {days.map((day, index) => {
             const future = index > currentDayIndex;
-            const missed = index < currentDayIndex && !day.result;
-            const result = day.result ? DAY_RESULTS[day.result] : null;
+            const result = getDayResult(day, goals);
+            const partial = index < currentDayIndex && !result && hasDayData(day);
+            const missed = index < currentDayIndex && !result && !partial;
             const selected = index === selectedIndex;
             return (
               <motion.button
@@ -516,7 +445,7 @@ function JourneyMap({ days, currentDayIndex, selectedIndex, onSelect, stats }) {
                 whileTap={!future ? { scale: 0.94 } : undefined}
                 className={`day-tile relative min-h-[66px] border p-1.5 text-center transition rounded-md ${selected ? 'ring-2 ring-[#102a43] ring-offset-2' : ''} ${future ? 'border-[#e1e7ea] bg-[#f3f6f7] text-slate-400' : missed ? 'border-[#f3c0bb] bg-[#fff4f2] text-[#a7473e]' : result ? 'text-white shadow-sm' : 'border-[#63c3df] bg-[#eaf8fd] text-[#0d6f91]'}`}
                 style={result ? { backgroundColor: result.color, borderColor: result.color } : undefined}
-                title={`День ${day.day}, ${formatLongDate(day.date)}${result ? `: ${result.title}` : ''}`}
+                title={`День ${day.day}, ${formatLongDate(day.date)}${result ? `: ${result.title}${day.closureMode === 'automatic' ? ', закрыт автоматически' : day.result ? '' : ', итог обновляется'}` : partial ? ': сохранён частично' : ''}`}
               >
                 <span className="block text-base font-black leading-none">{day.day}</span>
                 <span className={`mt-1 block text-[10px] font-black ${result ? 'text-white/85' : ''}`}>{formatShortDate(day.date)}</span>
@@ -527,7 +456,7 @@ function JourneyMap({ days, currentDayIndex, selectedIndex, onSelect, stats }) {
           })}
         </div>
       </div>
-      <div className="grid grid-cols-3 border-t border-[#e1e9ec] text-center text-xs font-black text-slate-500"><MapStat label="Закрыто" value={`${stats.closed.length}`} /><MapStat label="Прогресс" value={`${stats.completionRate}%`} /><MapStat label="Очки" value={stats.xp.toLocaleString('ru-RU')} /></div>
+      <div className="grid grid-cols-3 border-t border-[#e1e9ec] text-center text-xs font-black text-slate-500"><MapStat label="Зачтено" value={`${stats.credited.length}`} /><MapStat label="Прогресс" value={`${stats.completionRate}%`} /><MapStat label="Очки" value={stats.xp.toLocaleString('ru-RU')} /></div>
     </section>
   );
 }
@@ -598,6 +527,9 @@ function DailyEditor(props) {
 
         <section className="border border-[#d8e3e7] bg-white p-4 rounded-lg">
           <div className="flex items-center justify-between gap-3"><div><div className="text-xs font-black uppercase tracking-wide text-slate-500">Результат дня</div><div className="mt-1 text-2xl font-black" style={{ color: evaluation.color }}>{evaluation.title}</div></div><div className="grid h-14 w-14 place-items-center border-4 text-sm font-black rounded-full" style={{ borderColor: evaluation.color, color: evaluation.color }}>{evaluation.score}%</div></div>
+          {editable && <p role="status" className="mt-3 text-sm leading-6 text-slate-600">{evaluation.canClose ? `${evaluation.xp} очков уже учтены. Сегодня можно дополнять записи; при смене даты день закроется автоматически с итоговым результатом.` : hasDayData(day) ? 'Введённое сохраняется автоматически. Остальные поля можно заполнить в течение дня.' : 'Каждая отметка сохраняется сразу.'}</p>}
+          {day.closureMode === 'automatic' && <p className="mt-3 text-sm font-semibold text-[#16865f]">Закрыт автоматически по сохранённым данным · {day.xp} очков</p>}
+          {!editable && !day.result && hasDayData(day) && <p className="mt-3 text-sm text-slate-600">Сохранено частично. Все введённые показатели остались в истории и статистике.</p>}
           {!evaluation.canClose && <div className="mt-3 grid gap-1">{evaluation.blockers.map((blocker) => <div key={blocker} className="flex items-start gap-2 text-xs font-bold leading-5 text-slate-500"><AlertCircle size={14} className="mt-0.5 shrink-0 text-[#f3a52f]" />{blocker}</div>)}</div>}
           {weeklyReviewRequired && <div className="mt-3 border border-[#efd49f] bg-[#fff8e9] p-3 text-xs font-black text-[#8a5815] rounded-md">Сначала заполни недельный итог.</div>}
           {finalReviewRequired && <div className="mt-3 border border-[#cfc7ef] bg-[#f5f3ff] p-3 text-xs font-black text-[#5f4eaa] rounded-md">Финальный день закрывается только после итога пути.</div>}

@@ -81,8 +81,8 @@ export function number(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function getCurrentDayIndex(startDate) {
-  const elapsed = Math.floor((dateFromKey(todayKey()).getTime() - dateFromKey(startDate).getTime()) / 86400000);
+export function getCurrentDayIndex(startDate, currentDate = todayKey()) {
+  const elapsed = Math.round((dateFromKey(currentDate).getTime() - dateFromKey(startDate).getTime()) / 86400000);
   return clamp(elapsed, 0, TOTAL_DAYS - 1);
 }
 
@@ -90,8 +90,8 @@ export function isJourneyEnded(startDate) {
   return dateFromKey(todayKey()).getTime() > dateFromKey(addDays(startDate, TOTAL_DAYS - 1)).getTime();
 }
 
-export function userCacheKey(uid) {
-  return `${STORAGE_KEY}:${uid || 'local'}`;
+export function userCacheKey(uid, namespace = STORAGE_KEY) {
+  return `${namespace}:${uid || 'local'}`;
 }
 
 export function createId(prefix) {
@@ -111,6 +111,12 @@ export function defaultGoals(startDate) {
       name: 'Сладкое: 0',
       description: 'Без сладостей и сладкого вкуса. Чистая линия на 120 дней.',
       type: 'binary', cadence: 'daily', target: 1, unit: 'день', color: '#f06c5f', locked: true, active: true, createdDay: 1, createdAt: startDate, updatedAt: startDate,
+    },
+    {
+      id: 'daily-action',
+      name: 'Действие к цели',
+      description: 'Один конкретный шаг. Что именно сделал — в доказательстве дня.',
+      type: 'binary', cadence: 'daily', target: 1, unit: 'день', color: '#0d8fb9', locked: false, active: true, createdDay: 1, createdAt: startDate, updatedAt: startDate,
     },
     {
       id: 'kontur-value',
@@ -142,6 +148,7 @@ export function createDay(day, startDate) {
     steps: '',
     weight: '',
     goalValues: {},
+    fieldUpdatedAt: {},
     actions: [],
     courageMoments: [],
     evidence: '',
@@ -152,6 +159,7 @@ export function createDay(day, startDate) {
     score: 0,
     xp: 0,
     closedAt: null,
+    closureMode: null,
   };
 }
 
@@ -159,14 +167,15 @@ export function createWeeklyReview(index) {
   return { week: index + 1, victories: '', pattern: '', nextChoice: '', updatedAt: null };
 }
 
-export function createInitialState(startDate = todayKey(), acceptedAt = null) {
+export function createInitialState(startDate = todayKey(), acceptedAt = null, commitments = null) {
   const now = new Date().toISOString();
   return {
-    version: 9,
+    version: 10,
     resetGeneration: '2026-08-30',
     journeyId: createId('journey'),
     startDate,
     contractAcceptedAt: acceptedAt,
+    commitments,
     createdAt: now,
     updatedAtClient: now,
     profile: { ...PROFILE_DEFAULTS },
@@ -203,7 +212,7 @@ export function normalizeState(raw) {
   return {
     ...base,
     ...raw,
-    version: 9,
+    version: 10,
     profile: { ...PROFILE_DEFAULTS, ...(raw.profile || {}) },
     goals: Array.isArray(raw.goals) ? raw.goals.map((goal, index) => normalizeGoal(goal, index, raw.startDate)) : base.goals,
     tasks: Array.isArray(raw.tasks) ? raw.tasks.map((task) => ({ ...task, updatedAt: task.updatedAt || task.createdAt || raw.startDate })) : [],
@@ -242,6 +251,41 @@ function mergeById(first = [], second = []) {
   return [...map.values()];
 }
 
+const DAY_FIELDS = ['calories', 'activeCalories', 'steps', 'weight', 'actions', 'courageMoments', 'evidence', 'returnContext'];
+
+export function updateDayDraft(day, patch, changedAt) {
+  const next = { ...day, ...patch, fieldUpdatedAt: { ...day.fieldUpdatedAt }, draftUpdatedAt: changedAt, draftSavedAt: changedAt };
+  DAY_FIELDS.forEach((field) => {
+    if (JSON.stringify(next[field]) !== JSON.stringify(day[field])) next.fieldUpdatedAt[field] = changedAt;
+  });
+  Object.keys(next.goalValues || {}).forEach((id) => {
+    if (next.goalValues[id] !== day.goalValues?.[id]) next.fieldUpdatedAt[`goal:${id}`] = changedAt;
+  });
+  return next;
+}
+
+function mergeDayDrafts(remote, local) {
+  const newer = timestamp(local) >= timestamp(remote) ? local : remote;
+  const merged = { ...newer, goalValues: {}, fieldUpdatedAt: {} };
+  const fieldTime = (day, field, value) => Date.parse(day.fieldUpdatedAt?.[field] || ((value !== '' && value !== undefined && (!Array.isArray(value) || value.length)) ? day.draftUpdatedAt || day.closedAt : '') || '') || 0;
+  const choose = (field, remoteValue, localValue) => {
+    const remoteTime = fieldTime(remote, field, remoteValue);
+    const localTime = fieldTime(local, field, localValue);
+    if (remoteTime || localTime) merged.fieldUpdatedAt[field] = new Date(Math.max(remoteTime, localTime)).toISOString();
+    return localTime > remoteTime ? localValue : remoteValue ?? localValue;
+  };
+  DAY_FIELDS.forEach((field) => { merged[field] = choose(field, remote[field], local[field]); });
+  const ids = new Set([...Object.keys(remote.goalValues || {}), ...Object.keys(local.goalValues || {})]);
+  ids.forEach((id) => { merged.goalValues[id] = choose(`goal:${id}`, remote.goalValues?.[id], local.goalValues?.[id]); });
+  const draftTime = Math.max(Date.parse(remote.draftUpdatedAt || '') || 0, Date.parse(local.draftUpdatedAt || '') || 0);
+  if (draftTime) merged.draftUpdatedAt = new Date(draftTime).toISOString();
+  const contentChanged = DAY_FIELDS.some((field) => JSON.stringify(merged[field]) !== JSON.stringify(newer[field])) || JSON.stringify(merged.goalValues) !== JSON.stringify(newer.goalValues);
+  if (merged.closureMode === 'automatic' && contentChanged) {
+    Object.assign(merged, { result: null, closureMode: null, closedAt: null, xp: 0, score: 0 });
+  }
+  return merged;
+}
+
 export function mergeStates(remoteRaw, localRaw) {
   if (!remoteRaw) return normalizeState(localRaw);
   if (!localRaw) return normalizeState(remoteRaw);
@@ -249,7 +293,8 @@ export function mergeStates(remoteRaw, localRaw) {
   const local = normalizeState(localRaw);
   if (!remote) return local;
   if (!local) return remote;
-  if (remote.journeyId !== local.journeyId) return timestamp(local) >= timestamp(remote) ? local : remote;
+  // The cloud's accepted start wins over a second device starting the same marathon.
+  if (remote.journeyId !== local.journeyId) return remote.contractAcceptedAt ? remote : local;
   const newer = timestamp(local) >= timestamp(remote) ? local : remote;
   return {
     ...remote,
@@ -259,28 +304,29 @@ export function mergeStates(remoteRaw, localRaw) {
     tasks: mergeById(remote.tasks, local.tasks),
     days: remote.days.map((remoteDay, index) => {
       const localDay = local.days[index];
-      if (remoteDay.result && !localDay.result) return remoteDay;
-      if (localDay.result && !remoteDay.result) return localDay;
-      return timestamp(localDay) >= timestamp(remoteDay) ? localDay : remoteDay;
+      if (remoteDay.result && remoteDay.closureMode !== 'automatic') return remoteDay;
+      if (localDay.result && localDay.closureMode !== 'automatic') return localDay;
+      return mergeDayDrafts(remoteDay, localDay);
     }),
     weeklyReviews: remote.weeklyReviews.map((review, index) => timestamp(local.weeklyReviews[index]) >= timestamp(review) ? local.weeklyReviews[index] : review),
     updatedAtClient: new Date(Math.max(timestamp(remote), timestamp(local))).toISOString(),
   };
 }
 
-export function loadCachedState(uid) {
+export function loadCachedState(uid, namespace = STORAGE_KEY) {
   try {
-    return normalizeState(JSON.parse(localStorage.getItem(userCacheKey(uid)) || 'null'));
+    return normalizeState(JSON.parse(localStorage.getItem(userCacheKey(uid, namespace)) || 'null'));
   } catch {
     return null;
   }
 }
 
-export function saveCachedState(uid, state) {
+export function saveCachedState(uid, state, namespace = STORAGE_KEY) {
   try {
-    localStorage.setItem(userCacheKey(uid), JSON.stringify(state));
+    localStorage.setItem(userCacheKey(uid, namespace), JSON.stringify(state));
+    return true;
   } catch {
-    // Firebase remains the durable source of truth.
+    return false;
   }
 }
 
@@ -325,7 +371,7 @@ export function evaluateDay(day, goals) {
   const coreBroken = ['alcohol-zero', 'sweet-zero'].some((id) => day.goalValues?.[id] === false);
   const allDailyAnswered = answered.length === dailyBinary.length;
   const allDailyKept = kept.length === dailyBinary.length;
-  const healthComplete = number(day.calories) > 0 && day.activeCalories !== '' && day.steps !== '' && number(day.weight) > 0;
+  const healthComplete = isValidMetric(day.calories, 1) && isValidMetric(day.activeCalories, 0) && isValidMetric(day.steps, 0) && isValidMetric(day.weight, 1);
   const evidenceComplete = day.evidence?.trim().length >= 5;
   const actionsComplete = (day.actions || []).every(isActionComplete);
   const courageComplete = (day.courageMoments || []).every(isCourageComplete);
@@ -346,6 +392,35 @@ export function evaluateDay(day, goals) {
   let result = coreBroken ? DAY_RESULTS.return : nutritionOnCourse && allDailyKept ? DAY_RESULTS.strong : DAY_RESULTS.steady;
   if (!coreBroken && nutritionOnCourse && allDailyKept && (actionCount > 0 || courageCount > 0)) result = DAY_RESULTS.expansion;
   return { ...result, score, canClose, blockers: [] };
+}
+
+function isValidMetric(value, minimum) {
+  if (value === '' || value === null || value === undefined) return false;
+  const parsed = Number(String(value).replace(',', '.'));
+  return Number.isFinite(parsed) && parsed >= minimum;
+}
+
+export function hasDayData(day) {
+  return Boolean(day.result || day.draftUpdatedAt || day.draftSavedAt || ['weight', 'calories', 'activeCalories', 'steps'].some((key) => day[key] !== '' && day[key] !== null && day[key] !== undefined) || Object.keys(day.goalValues || {}).length || day.evidence?.trim() || day.actions?.length || day.courageMoments?.length);
+}
+
+export function getDayResult(day, goals) {
+  if (day.result) return { ...DAY_RESULTS[day.result], score: day.score, xp: day.xp, canClose: true, blockers: [] };
+  const evaluation = evaluateDay(day, goals);
+  return evaluation.canClose ? evaluation : null;
+}
+
+export function finalizePastDays(state, currentDate = todayKey(), finalizedAt = new Date().toISOString()) {
+  if (!state?.contractAcceptedAt) return state;
+  let changed = false;
+  const days = state.days.map((day) => {
+    if (day.result || day.date >= currentDate || !hasDayData(day)) return day;
+    const result = evaluateDay(day, state.goals);
+    if (!result.canClose) return day;
+    changed = true;
+    return { ...day, result: result.id, score: result.score, xp: result.xp, closedAt: finalizedAt, closureMode: 'automatic', draftSavedAt: day.draftSavedAt || day.draftUpdatedAt || finalizedAt };
+  });
+  return changed ? { ...state, days, updatedAtClient: finalizedAt } : state;
 }
 
 function goalPeriodTarget(goal, eligibleDays) {
@@ -428,25 +503,27 @@ export function calculateStats(state, currentDayIndex, range = '30') {
   const elapsed = state.days.slice(0, elapsedDayNumber);
   const rangeSize = range === 'all' ? TOTAL_DAYS : number(range);
   const visible = elapsed.slice(-rangeSize);
-  const recorded = visible.filter((day) => day.result || day.draftSavedAt);
-  const allRecorded = elapsed.filter((day) => day.result || day.draftSavedAt);
+  const recorded = visible.filter(hasDayData);
+  const allRecorded = elapsed.filter(hasDayData);
   const closed = elapsed.filter((day) => day.result);
+  const credited = elapsed.filter((day) => getDayResult(day, state.goals));
   const weights = recorded.map((day) => ({ day: day.day, value: number(day.weight) })).filter((item) => item.value);
   const allWeights = allRecorded.map((day) => ({ day: day.day, value: number(day.weight) })).filter((item) => item.value);
   const calories = recorded.map((day) => ({ day: day.day, value: number(day.calories) })).filter((item) => item.value);
-  const activity = recorded.map((day) => ({ day: day.day, value: number(day.activeCalories) })).filter((item) => item.value || item.value === 0);
-  const steps = recorded.map((day) => ({ day: day.day, value: number(day.steps) })).filter((item) => item.value || item.value === 0);
+  const activity = recorded.filter((day) => isValidMetric(day.activeCalories, 0)).map((day) => ({ day: day.day, value: number(day.activeCalories) }));
+  const steps = recorded.filter((day) => isValidMetric(day.steps, 0)).map((day) => ({ day: day.day, value: number(day.steps) }));
   const balances = recorded.map((day) => ({ day: day.day, value: calculateEnergyBalance(day, state.profile) })).filter((item) => item.value !== null);
   const allActions = elapsed.flatMap((day) => (day.actions || []).filter(isActionComplete).map((action) => ({ ...action, day: day.day, date: day.date })));
   const courage = elapsed.flatMap((day) => (day.courageMoments || []).filter(isCourageComplete).map((moment) => ({ ...moment, day: day.day, date: day.date })));
   const goalStats = state.goals.filter((goal) => goal.active !== false || goal.createdDay <= elapsedDayNumber).map((goal) => calculateGoalStats(goal, state.days, state.tasks, elapsedDayNumber));
-  const xp = state.days.reduce((sum, day) => sum + number(day.xp), 0);
+  const xp = credited.reduce((sum, day) => sum + getDayResult(day, state.goals).xp, 0);
   const avg = (items) => items.length ? Math.round(items.reduce((sum, item) => sum + item.value, 0) / items.length) : 0;
   return {
     elapsed,
     visible,
     recorded,
     closed,
+    credited,
     goalStats,
     weights,
     calories,
@@ -457,7 +534,7 @@ export function calculateStats(state, currentDayIndex, range = '30') {
     courage,
     xp,
     level: Math.max(1, Math.floor(xp / 700) + 1),
-    completionRate: elapsed.length ? Math.round((closed.length / elapsed.length) * 100) : 0,
+    completionRate: elapsed.length ? Math.round((credited.length / elapsed.length) * 100) : 0,
     avgCalories: avg(calories),
     avgActivity: avg(activity),
     avgSteps: avg(steps),
@@ -469,21 +546,26 @@ export function calculateStats(state, currentDayIndex, range = '30') {
     weightProjection: calculateWeightProjection(allWeights, state.profile.targetWeight, elapsedDayNumber),
     tasksDone: state.tasks.filter((task) => task.completedDay).length,
     tasksOpen: state.tasks.filter((task) => !task.completedDay && task.active !== false).length,
-    resultCounts: closed.reduce((acc, day) => ({ ...acc, [day.result]: (acc[day.result] || 0) + 1 }), {}),
+    resultCounts: credited.reduce((acc, day) => { const result = getDayResult(day, state.goals); return { ...acc, [result.id]: (acc[result.id] || 0) + 1 }; }, {}),
   };
 }
 
 export function buildExport(state, stats) {
   const goalLines = stats.goalStats.map((item) => `- ${item.goal.name}: ${item.achieved}/${item.target} ${item.goal.unit}, прогресс ${item.progress}%, связанных задач ${item.completedTasks}, фактов действий ${item.actionCount}`);
-  const dayLines = state.days.filter((day) => day.result).map((day) => {
+  const dayLines = state.days.filter(hasDayData).map((day) => {
+    const result = getDayResult(day, state.goals);
     const goals = state.goals.map((goal) => `${goal.name}: ${day.goalValues?.[goal.id] === true ? 'да' : day.goalValues?.[goal.id] === false ? 'нет' : day.goalValues?.[goal.id] ?? '-'}`).join('; ');
-    return `- День ${day.day} (${day.date}): ${DAY_RESULTS[day.result]?.title || day.result}, ${day.score}%, вес ${day.weight || '-'}, калории ${day.calories || '-'}, активные ${day.activeCalories || '-'}, шаги ${day.steps || '-'}, цели [${goals}], доказательство: ${day.evidence || '-'}, действия: ${(day.actions || []).map((action) => action.text).join('; ') || '-'}, ситуации: ${(day.courageMoments || []).map((moment) => `${moment.situation} ${moment.before}->${moment.after}`).join('; ') || '-'}`;
+    return `- День ${day.day} (${day.date}): ${result?.title || 'Заполнен частично'}, ${result?.score ?? day.score}%, ${result?.xp || 0} очков, ${day.closureMode === 'automatic' ? 'закрыт автоматически' : day.result ? 'закрыт вручную' : 'сохранён'}, вес ${day.weight || '-'}, калории ${day.calories || '-'}, активные ${day.activeCalories || '-'}, шаги ${day.steps || '-'}, цели [${goals}], доказательство: ${day.evidence || '-'}, действия: ${(day.actions || []).map((action) => action.text).join('; ') || '-'}, ситуации: ${(day.courageMoments || []).map((moment) => `${moment.situation} ${moment.before}->${moment.after}`).join('; ') || '-'}`;
   });
   const markdown = [
     '# Марафон 120 дней',
     '',
     `Старт: ${state.startDate}`,
+    `Ради чего: ${state.commitments?.purpose || '-'}`,
+    `Обязательства приняты: ${state.commitments?.acceptedAt || '-'}`,
+    ...(state.commitments?.items || []).map((item) => `- ${item.title}: ${item.text} (${item.metric})`),
     `Закрыто: ${stats.closed.length}/${stats.elapsed.length}`,
+    `Дней с результатом: ${stats.credited.length}; очки: ${stats.xp}`,
     `Вес: ${stats.firstWeight || '-'} -> ${stats.lastWeight || '-'} кг`,
     `Средний энергобаланс: ${stats.avgBalance} ккал`,
     `Карьерное решение: ${state.careerDecision.status}`,
