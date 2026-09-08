@@ -34,8 +34,9 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
-import { auth, firebaseConfigured, googleProvider } from './firebase';
+import { signOut } from 'firebase/auth';
+import { auth } from './firebase';
+import { useGoogleAuth } from './auth/useGoogleAuth';
 import { useMarathonStore } from './marathon/useMarathonStore';
 import { START_COMMITMENTS, acceptCommitments } from './marathon/commitments';
 import journeyDawn from './assets/journey-dawn.jpg';
@@ -69,9 +70,12 @@ import {
 } from './marathon/model';
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [authLoading, setAuthLoading] = useState(Boolean(auth));
-  const [authError, setAuthError] = useState('');
+  const authSession = useGoogleAuth();
+  return <AccountApp key={authSession.user?.uid || 'signed-out'} authSession={authSession} />;
+}
+
+function AccountApp({ authSession }) {
+  const { user, loading: authLoading, signingIn, error: authError, signIn } = authSession;
   const { state, ready: cloudReady, syncState, error: storageError, starting, currentDate, start, commit, retry } = useMarathonStore(user);
   const [activeDayIndex, setActiveDayIndex] = useState(null);
   const [view, setView] = useState('today');
@@ -83,25 +87,6 @@ function App() {
   const [showExport, setShowExport] = useState(false);
   const [celebration, setCelebration] = useState(null);
 
-  useEffect(() => {
-    if (!auth) return undefined;
-    return onAuthStateChanged(auth, (nextUser) => {
-      setUser(nextUser);
-      setAuthLoading(false);
-      setActiveDayIndex(null);
-    });
-  }, []);
-
-  const signIn = async () => {
-    if (!auth || !firebaseConfigured) return setAuthError('Firebase не настроен.');
-    setAuthError('');
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (error) {
-      setAuthError(error instanceof Error ? error.message : 'Не удалось войти.');
-    }
-  };
-
   const startJourney = async (commitments) => {
     if (await start(commitments)) {
       setActiveDayIndex(null);
@@ -109,9 +94,9 @@ function App() {
     }
   };
 
-  if (authLoading) return <LoadingScreen text="Проверяю аккаунт" />;
-  if (!user) return <LoginScreen onSignIn={signIn} error={authError} />;
-  if (!cloudReady) return <LoadingScreen text="Загружаю историю" />;
+  if (authLoading) return <LoadingScreen text="Проверяю аккаунт" onRetry={() => window.location.reload()} />;
+  if (!user) return <LoginScreen onSignIn={signIn} signingIn={signingIn} error={authError} />;
+  if (!cloudReady) return <LoadingScreen key={user.uid} text="Загружаю историю" error={storageError} onRetry={retry} onLogOut={() => signOut(auth)} />;
   if (!state?.contractAcceptedAt) return <StartScreen onStart={startJourney} starting={starting} error={storageError} onRetry={retry} onLogOut={() => signOut(auth)} />;
 
   const currentDayIndex = getCurrentDayIndex(state.startDate, currentDate);
@@ -310,19 +295,37 @@ function App() {
   );
 }
 
-function LoadingScreen({ text }) {
-  return <div className="grid min-h-screen place-items-center bg-[#f4f7f8]"><div className="flex items-center gap-3 font-black text-[#102a43]"><Loader2 className="animate-spin text-[#0d8fb9]" />{text}</div></div>;
+function LoadingScreen({ text, error, onRetry, onLogOut }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSlow(true), 12000);
+    return () => window.clearTimeout(timer);
+  }, []);
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#f4f7f8] p-5 text-[#102a43]">
+      <div className="w-full max-w-md text-center">
+        <div role="status" className="flex items-center justify-center gap-3 font-black">{error ? <AlertCircle className="shrink-0 text-amber-600" /> : <Loader2 className="shrink-0 animate-spin text-[#0d8fb9]" />}{error ? 'История пока недоступна' : text}</div>
+        {(error || slow) && <>
+          <p role={error ? 'alert' : undefined} className="mt-4 text-sm leading-6 text-slate-600">{error || 'Подключение занимает больше времени. Можно повторить загрузку без сброса данных.'}</p>
+          <div className="mt-5 flex flex-wrap justify-center gap-3">
+            <button type="button" onClick={onRetry} className="inline-flex min-h-11 items-center gap-2 rounded-md bg-[#0d8fb9] px-4 font-bold text-white"><Route size={17} />Повторить загрузку</button>
+            {onLogOut && <button type="button" onClick={onLogOut} className="inline-flex min-h-11 items-center gap-2 rounded-md border border-[#dbe5e9] px-4 font-bold"><LogOut size={17} />Выйти</button>}
+          </div>
+        </>}
+      </div>
+    </div>
+  );
 }
 
-function LoginScreen({ onSignIn, error }) {
+function LoginScreen({ onSignIn, signingIn, error }) {
   return (
     <div className="grid min-h-screen place-items-center bg-[#f4f7f8] p-4">
       <section className="w-full max-w-lg border border-[#dbe5e9] bg-white p-6 shadow-sm rounded-lg">
         <div className="text-sm font-black uppercase tracking-wide text-[#0d8fb9]">Марафон 120</div>
         <h1 className="mt-3 text-4xl font-black leading-tight">Один путь. Все данные на месте.</h1>
-        <p className="mt-4 font-semibold leading-7 text-slate-600">Google-аккаунт нужен только для синхронизации телефона и компьютера. Адрес аккаунта в основном интерфейсе больше не показывается.</p>
-        <button type="button" onClick={onSignIn} className="mt-6 inline-flex min-h-[50px] w-full items-center justify-center gap-2 bg-[#102a43] px-5 font-black text-white rounded-md"><LogIn size={18} />Войти через Google</button>
-        {error && <div className="mt-4 border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700 rounded-md">{error}</div>}
+        <p className="mt-4 font-semibold leading-7 text-slate-600">Твой марафон, на телефоне и компьютере.</p>
+        <button type="button" onClick={onSignIn} disabled={signingIn} aria-busy={signingIn} className="mt-6 inline-flex min-h-[50px] w-full items-center justify-center gap-2 bg-[#102a43] px-5 font-black text-white disabled:cursor-wait disabled:opacity-70 rounded-md">{signingIn ? <Loader2 size={18} className="animate-spin" /> : <LogIn size={18} />}{signingIn ? 'Ожидаю Google…' : 'Войти через Google'}</button>
+        {error && <div role="alert" className="mt-4 border border-rose-200 bg-rose-50 p-3 text-sm font-bold leading-6 text-rose-700 rounded-md">{error}</div>}
       </section>
     </div>
   );

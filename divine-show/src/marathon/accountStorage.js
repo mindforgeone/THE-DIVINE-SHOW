@@ -20,6 +20,10 @@ export async function resolveAccountStorage(user, requestedAccountHash = REQUEST
 
 export function clearRequestedHistoryCache(uid, storage) {
   if (!storage.resetRequested) return;
-  clearLegacyCache(uid);
-  localStorage.removeItem(`${STORAGE_KEY}:${uid}`);
+  try {
+    clearLegacyCache(uid);
+    localStorage.removeItem(`${STORAGE_KEY}:${uid}`);
+  } catch {
+    // A blocked browser cache must not prevent access to the cloud account.
+  }
 }
