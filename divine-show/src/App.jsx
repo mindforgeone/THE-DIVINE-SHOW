@@ -295,13 +295,13 @@ function AccountApp({ authSession }) {
       <MobileNav view={view} onView={setView} onAdd={() => view === 'steps' ? setNewStepRequest((value) => value + 1) : setTaskEditorOpen(true)} />
 
       <AnimatePresence>
-        {goalEditor && <GoalModal mode={goalEditor.mode} goal={goalEditor.goal} goals={state.goals} onSave={saveGoal} onArchive={archiveGoal} onClose={() => setGoalEditor(null)} />}
-        {goalPickerOpen && <DayGoalPicker day={selectedDay} goals={state.goals} editable={editable} onChange={updateDay} onClose={() => setGoalPickerOpen(false)} />}
-        {taskEditorOpen && <TaskModal goals={state.goals} currentDay={currentDayNumber} onSave={addTask} onClose={() => setTaskEditorOpen(false)} />}
-        {careerChoice && <ConfirmCareer choice={careerChoice} onConfirm={confirmCareer} onClose={() => setCareerChoice(null)} />}
-        {confirmClose && <ConfirmClose evaluation={evaluation} weeklyRequired={weeklyReviewRequired} finalRequired={finalReviewRequired} onConfirm={closeDay} onClose={() => setConfirmClose(false)} />}
-        {showExport && <ExportModal data={exportData} onClose={() => setShowExport(false)} />}
-        {celebration && <Celebration result={celebration} />}
+        {goalEditor && <GoalModal key="goal-editor" mode={goalEditor.mode} goal={goalEditor.goal} goals={state.goals} onSave={saveGoal} onArchive={archiveGoal} onClose={() => setGoalEditor(null)} />}
+        {goalPickerOpen && <DayGoalPicker key="goal-picker" day={selectedDay} goals={state.goals} editable={editable} onChange={updateDay} onClose={() => setGoalPickerOpen(false)} />}
+        {taskEditorOpen && <TaskModal key="task-editor" goals={state.goals} currentDay={currentDayNumber} onSave={addTask} onClose={() => setTaskEditorOpen(false)} />}
+        {careerChoice && <ConfirmCareer key="career-choice" choice={careerChoice} onConfirm={confirmCareer} onClose={() => setCareerChoice(null)} />}
+        {confirmClose && <ConfirmClose key="close-day" evaluation={evaluation} weeklyRequired={weeklyReviewRequired} finalRequired={finalReviewRequired} onConfirm={closeDay} onClose={() => setConfirmClose(false)} />}
+        {showExport && <ExportModal key="export" data={exportData} onClose={() => setShowExport(false)} />}
+        {celebration && <Celebration key="celebration" result={celebration} />}
       </AnimatePresence>
     </div>
   );

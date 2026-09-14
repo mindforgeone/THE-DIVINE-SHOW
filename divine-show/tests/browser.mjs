@@ -79,6 +79,7 @@ try {
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => { if (message.type() === 'error' && message.text().includes('Encountered two children with the same key')) errors.push(message.text()); });
   await page.clock.install({ time: new Date('2026-09-06T10:00:00Z') });
   await page.goto(url);
   await page.getByRole('heading', { name: 'Мои аскезы', exact: true }).waitFor();
