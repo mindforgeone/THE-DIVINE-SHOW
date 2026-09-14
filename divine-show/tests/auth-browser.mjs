@@ -39,24 +39,23 @@ export const signOut = async () => control.emit(null);
 const firestoreStub = `
 const cloud = window.__cloudTest;
 const subscribers = new Set();
-const snapshot = () => ({ exists: () => true, data: () => cloud.document, metadata: { fromCache: false, hasPendingWrites: false } });
-cloud.emit = () => { for (const item of subscribers) item.callback(snapshot()); };
-cloud.fail = (code) => { for (const item of [...subscribers]) item.onError({ code }); };
+const isSteps = (path) => path.endsWith('/trackers/steps-v1');
+const snapshot = (path) => { const data = isSteps(path) ? cloud.stepsDocument : cloud.document; return { exists: () => Boolean(data), data: () => data, metadata: { fromCache: false, hasPendingWrites: false } }; };
+cloud.emit = () => { for (const item of subscribers) item.callback(snapshot(item.path)); };
+cloud.fail = (code) => { for (const item of [...subscribers]) if (!isSteps(item.path)) item.onError({ code }); };
 export const doc = (_db, ...parts) => parts.join('/');
 export const getFirestore = () => ({});
 export const serverTimestamp = () => new Date().toISOString();
-export const onSnapshot = (_path, _options, callback, onError) => {
-  cloud.subscriptions++;
-  const item = { callback, onError }; subscribers.add(item);
-  if (!cloud.holdSnapshot) queueMicrotask(() => { if (subscribers.has(item)) callback(snapshot()); });
+export const onSnapshot = (path, _options, callback, onError) => {
+  if (!isSteps(path)) cloud.subscriptions++;
+  const item = { path, callback, onError }; subscribers.add(item);
+  if (!cloud.holdSnapshot || isSteps(path)) queueMicrotask(() => { if (subscribers.has(item)) callback(snapshot(path)); });
   return () => subscribers.delete(item);
 };
 export const runTransaction = async (_db, callback) => {
-  cloud.transactions++;
-  if (cloud.holdTransaction) await new Promise((resolve) => { cloud.release = resolve; });
   const result = await callback({
-    get: async () => snapshot(),
-    set: (_path, value) => { cloud.document = { ...cloud.document, ...value }; cloud.writes++; },
+    get: async (path) => { if (!isSteps(path)) { cloud.transactions++; if (cloud.holdTransaction) await new Promise((resolve) => { cloud.release = resolve; }); } return snapshot(path); },
+    set: (path, value) => { if (isSteps(path)) cloud.stepsDocument = { ...cloud.stepsDocument, ...value }; else cloud.document = { ...cloud.document, ...value }; cloud.writes++; },
     delete: () => { throw new Error('Existing history must never be reset'); },
   });
   cloud.emit();

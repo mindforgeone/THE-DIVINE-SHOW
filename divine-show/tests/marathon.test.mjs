@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createHash } from 'node:crypto';
 import {
   TOTAL_DAYS, createInitialState, evaluateDay, finalizePastDays, calculateStats,
-  buildExport, updateDayDraft, mergeStates, saveCachedState, loadCachedState,
+  buildExport, updateDayDraft, mergeStates, saveCachedState, loadCachedState, visibleGoalsForDay,
 } from '../src/marathon/model.js';
 import { START_COMMITMENTS, acceptCommitments } from '../src/marathon/commitments.js';
 import { resolveAccountStorage } from '../src/marathon/accountStorage.js';
@@ -54,6 +54,23 @@ test('complete current day earns color and points without locking or clicking sa
   assert.equal(stats.xp, 100);
   assert.equal(stats.resultCounts.strong, 1);
   assert.match(buildExport(state, stats).markdown, /100/);
+});
+
+test('today shows only daily goals until optional ones are picked, and selection merges across devices', () => {
+  const state = makeState();
+  const day = state.days[0];
+  assert.deepEqual(visibleGoalsForDay(day, state.goals).map((goal) => goal.id), ['alcohol-zero', 'sweet-zero', 'daily-action']);
+  const chosen = updateDayDraft(day, { visibleGoalIds: ['alcohol-zero', 'sweet-zero', 'photo'] }, EVENING);
+  assert.deepEqual(visibleGoalsForDay(chosen, state.goals).map((goal) => goal.id), ['alcohol-zero', 'sweet-zero', 'photo']);
+  assert.equal(evaluateDay({ ...chosen, goalValues: { 'alcohol-zero': true, 'sweet-zero': true }, calories: '1800', activeCalories: '300', steps: '8000', weight: '70', evidence: 'Kept my word and took action.' }, state.goals).canClose, true);
+  const remote = structuredClone(state);
+  const local = structuredClone(state);
+  remote.days[0] = chosen;
+  local.days[0] = updateDayDraft(day, { weight: '69.8' }, NEXT);
+  const merged = mergeStates(remote, local);
+  assert.deepEqual(merged.days[0].visibleGoalIds, chosen.visibleGoalIds);
+  assert.equal(merged.days[0].weight, '69.8');
+  assert.deepEqual(visibleGoalsForDay({ ...day, goalValues: { photo: '1' } }, state.goals).map((goal) => goal.id), ['alcohol-zero', 'sweet-zero', 'daily-action', 'photo']);
 });
 
 test('midnight or later reopen closes every complete past day exactly once', () => {

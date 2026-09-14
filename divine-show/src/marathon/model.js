@@ -148,6 +148,7 @@ export function createDay(day, startDate) {
     steps: '',
     weight: '',
     goalValues: {},
+    visibleGoalIds: null,
     fieldUpdatedAt: {},
     actions: [],
     courageMoments: [],
@@ -251,7 +252,7 @@ function mergeById(first = [], second = []) {
   return [...map.values()];
 }
 
-const DAY_FIELDS = ['calories', 'activeCalories', 'steps', 'weight', 'actions', 'courageMoments', 'evidence', 'returnContext'];
+const DAY_FIELDS = ['calories', 'activeCalories', 'steps', 'weight', 'actions', 'courageMoments', 'evidence', 'returnContext', 'visibleGoalIds'];
 
 export function updateDayDraft(day, patch, changedAt) {
   const next = { ...day, ...patch, fieldUpdatedAt: { ...day.fieldUpdatedAt }, draftUpdatedAt: changedAt, draftSavedAt: changedAt };
@@ -267,7 +268,7 @@ export function updateDayDraft(day, patch, changedAt) {
 function mergeDayDrafts(remote, local) {
   const newer = timestamp(local) >= timestamp(remote) ? local : remote;
   const merged = { ...newer, goalValues: {}, fieldUpdatedAt: {} };
-  const fieldTime = (day, field, value) => Date.parse(day.fieldUpdatedAt?.[field] || ((value !== '' && value !== undefined && (!Array.isArray(value) || value.length)) ? day.draftUpdatedAt || day.closedAt : '') || '') || 0;
+  const fieldTime = (day, field, value) => Date.parse(day.fieldUpdatedAt?.[field] || ((value !== '' && value !== null && value !== undefined && (!Array.isArray(value) || value.length)) ? day.draftUpdatedAt || day.closedAt : '') || '') || 0;
   const choose = (field, remoteValue, localValue) => {
     const remoteTime = fieldTime(remote, field, remoteValue);
     const localTime = fieldTime(local, field, localValue);
@@ -363,8 +364,16 @@ export function isWeeklyReviewComplete(review) {
   return Boolean(review?.victories?.trim() && review?.pattern?.trim() && review?.nextChoice?.trim());
 }
 
+export function visibleGoalsForDay(day, goals) {
+  return goals.filter((goal) => goal.active !== false && goal.createdDay <= day.day && (
+    goal.locked || (Array.isArray(day.visibleGoalIds)
+      ? day.visibleGoalIds.includes(goal.id)
+      : goal.cadence === 'daily' || Object.hasOwn(day.goalValues || {}, goal.id))
+  ));
+}
+
 export function evaluateDay(day, goals) {
-  const activeGoals = goals.filter((goal) => goal.active !== false && goal.createdDay <= day.day);
+  const activeGoals = visibleGoalsForDay(day, goals);
   const dailyBinary = activeGoals.filter((goal) => goal.type === 'binary' && goal.cadence === 'daily');
   const answered = dailyBinary.filter((goal) => typeof day.goalValues?.[goal.id] === 'boolean');
   const kept = dailyBinary.filter((goal) => day.goalValues?.[goal.id] === true);

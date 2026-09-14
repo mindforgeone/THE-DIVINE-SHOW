@@ -21,6 +21,7 @@ import {
   Lock,
   LogIn,
   LogOut,
+  ListFilter,
   Menu,
   Plus,
   Route,
@@ -38,6 +39,8 @@ import { signOut } from 'firebase/auth';
 import { auth } from './firebase';
 import { useGoogleAuth } from './auth/useGoogleAuth';
 import { useMarathonStore } from './marathon/useMarathonStore';
+import { useStepsStore } from './steps/useStepsStore';
+import StepsModule from './steps/StepsModule';
 import { START_COMMITMENTS, acceptCommitments } from './marathon/commitments';
 import journeyDawn from './assets/journey-dawn.jpg';
 import {
@@ -67,6 +70,7 @@ import {
   number,
   todayKey,
   updateDayDraft,
+  visibleGoalsForDay,
 } from './marathon/model';
 
 function App() {
@@ -77,10 +81,13 @@ function App() {
 function AccountApp({ authSession }) {
   const { user, loading: authLoading, signingIn, error: authError, signIn } = authSession;
   const { state, ready: cloudReady, syncState, error: storageError, starting, currentDate, start, commit, retry } = useMarathonStore(user);
+  const stepsStore = useStepsStore(user);
   const [activeDayIndex, setActiveDayIndex] = useState(null);
   const [view, setView] = useState('today');
   const [range, setRange] = useState('30');
   const [goalEditor, setGoalEditor] = useState(null);
+  const [goalPickerOpen, setGoalPickerOpen] = useState(false);
+  const [newStepRequest, setNewStepRequest] = useState(0);
   const [taskEditorOpen, setTaskEditorOpen] = useState(false);
   const [careerChoice, setCareerChoice] = useState(null);
   const [confirmClose, setConfirmClose] = useState(false);
@@ -158,7 +165,8 @@ function AccountApp({ authSession }) {
         locked: Boolean(draft.locked),
       };
       const exists = previous.goals.some((item) => item.id === goal.id);
-      return { ...previous, goals: exists ? previous.goals.map((item) => item.id === goal.id ? goal : item) : [...previous.goals, goal] };
+      const days = !exists && goalEditor?.addToDay && editable ? previous.days.map((day, index) => index === selectedIndex ? updateDayDraft(day, { visibleGoalIds: [...new Set([...visibleGoalsForDay(day, previous.goals).map((item) => item.id), goal.id])] }, changedAt) : day) : previous.days;
+      return { ...previous, days, goals: exists ? previous.goals.map((item) => item.id === goal.id ? goal : item) : [...previous.goals, goal] };
     });
     setGoalEditor(null);
   };
@@ -230,7 +238,7 @@ function AccountApp({ authSession }) {
 
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-3 pb-24 pt-3 sm:px-5 lg:px-7">
         {storageError && <div role="status" className="flex flex-wrap items-center justify-between gap-2 border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 rounded-md"><span>{storageError}</span><button type="button" onClick={retry} className="font-bold underline">Повторить синхронизацию</button></div>}
-        <JourneyMap
+        {view !== 'steps' && <JourneyMap
           days={state.days}
           goals={state.goals}
           currentDayIndex={currentDayIndex}
@@ -238,7 +246,7 @@ function AccountApp({ authSession }) {
           startDate={state.startDate}
           onSelect={setActiveDayIndex}
           stats={stats}
-        />
+        />}
 
         {view === 'today' ? (
           <>
@@ -259,8 +267,9 @@ function AccountApp({ authSession }) {
               onDayChange={updateDay}
               onSave={saveDraft}
               onClose={() => setConfirmClose(true)}
-              onAddGoal={() => setGoalEditor({ mode: 'new' })}
+              onAddGoal={() => setGoalEditor({ mode: 'new', addToDay: true })}
               onEditGoal={(goal) => setGoalEditor({ mode: 'edit', goal })}
+              onPickGoals={() => setGoalPickerOpen(true)}
               onAddTask={() => setTaskEditorOpen(true)}
               onToggleTask={toggleTask}
               onDeleteTask={deleteTask}
@@ -268,6 +277,8 @@ function AccountApp({ authSession }) {
               onFinalReviewChange={updateFinalReview}
             />
           </>
+        ) : view === 'steps' ? (
+          <StepsModule {...stepsStore} newStepRequest={newStepRequest} />
         ) : (
           <StatsDashboard
             state={state}
@@ -281,10 +292,11 @@ function AccountApp({ authSession }) {
         )}
       </div>
 
-      <MobileNav view={view} onView={setView} onAddTask={() => setTaskEditorOpen(true)} />
+      <MobileNav view={view} onView={setView} onAdd={() => view === 'steps' ? setNewStepRequest((value) => value + 1) : setTaskEditorOpen(true)} />
 
       <AnimatePresence>
         {goalEditor && <GoalModal mode={goalEditor.mode} goal={goalEditor.goal} goals={state.goals} onSave={saveGoal} onArchive={archiveGoal} onClose={() => setGoalEditor(null)} />}
+        {goalPickerOpen && <DayGoalPicker day={selectedDay} goals={state.goals} editable={editable} onChange={updateDay} onClose={() => setGoalPickerOpen(false)} />}
         {taskEditorOpen && <TaskModal goals={state.goals} currentDay={currentDayNumber} onSave={addTask} onClose={() => setTaskEditorOpen(false)} />}
         {careerChoice && <ConfirmCareer choice={careerChoice} onConfirm={confirmCareer} onClose={() => setCareerChoice(null)} />}
         {confirmClose && <ConfirmClose evaluation={evaluation} weeklyRequired={weeklyReviewRequired} finalRequired={finalReviewRequired} onConfirm={closeDay} onClose={() => setConfirmClose(false)} />}
@@ -388,6 +400,7 @@ function CompactHeader({ currentDay, progress, syncState, view, onView, onGoals,
         </div>
         <div className="hidden items-center gap-1 sm:flex">
           <NavButton active={view === 'today'} icon={<Home size={17} />} label="Сегодня" onClick={() => onView('today')} />
+          <NavButton active={view === 'steps'} icon={<Footprints size={17} />} label="Шаги" onClick={() => onView('steps')} />
           <NavButton active={view === 'stats'} icon={<BarChart3 size={17} />} label="Статистика" onClick={() => onView('stats')} />
         </div>
         <span role="status" aria-label={syncState === 'offline' ? 'Сохранено на устройстве, ожидает синхронизации' : syncState === 'saving' ? 'Сохраняю в облако' : 'Сохранено в облаке'} className={`h-2.5 w-2.5 shrink-0 rounded-full ${syncState === 'offline' ? 'bg-rose-500' : syncState === 'saving' ? 'animate-pulse bg-amber-400' : 'bg-emerald-500'}`} title={syncState === 'offline' ? 'Сохранено на устройстве' : syncState === 'saving' ? 'Сохраняю в облако' : 'Сохранено в облаке'} />
@@ -408,8 +421,8 @@ function MenuItem({ icon, label, onClick }) {
   return <button type="button" onClick={onClick} className="flex min-h-[42px] w-full items-center gap-3 px-3 text-left text-sm font-black text-slate-700 hover:bg-[#f1f5f7] rounded-md">{icon}{label}</button>;
 }
 
-function MobileNav({ view, onView, onAddTask }) {
-  return <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#d9e4e8] bg-white/95 px-3 py-2 backdrop-blur-xl sm:hidden"><div className="mx-auto grid max-w-sm grid-cols-3 gap-2"><MobileNavButton active={view === 'today'} icon={<Home />} label="День" onClick={() => onView('today')} /><button type="button" onClick={onAddTask} className="mx-auto grid h-12 w-12 place-items-center bg-[#f06c5f] text-white shadow-lg rounded-md" title="Добавить задачу"><Plus /></button><MobileNavButton active={view === 'stats'} icon={<BarChart3 />} label="Статистика" onClick={() => onView('stats')} /></div></nav>;
+function MobileNav({ view, onView, onAdd }) {
+  return <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#d9e4e8] bg-white/95 px-3 py-2 backdrop-blur-xl sm:hidden"><div className="mx-auto grid max-w-sm grid-cols-4 gap-1"><MobileNavButton active={view === 'today'} icon={<Home />} label="День" onClick={() => onView('today')} /><MobileNavButton active={view === 'steps'} icon={<Footprints />} label="Шаги" onClick={() => onView('steps')} /><button type="button" onClick={onAdd} className="mx-auto grid h-12 w-12 place-items-center bg-[#f06c5f] text-white shadow-lg rounded-md" title={view === 'steps' ? 'Новый шаг' : 'Добавить задачу'}><Plus /></button><MobileNavButton active={view === 'stats'} icon={<BarChart3 />} label="Статистика" onClick={() => onView('stats')} /></div></nav>;
 }
 
 function MobileNavButton({ active, icon, label, onClick }) {
@@ -493,8 +506,10 @@ function CareerStrip({ decision, onChoose }) {
 }
 
 function DailyEditor(props) {
-  const { day, goals, tasks, editable, evaluation, profile, weeklyReview, weeklyReviewRequired, finalReview, finalReviewRequired, onDayChange, onSave, onClose, onAddGoal, onEditGoal, onAddTask, onToggleTask, onDeleteTask, onReviewChange, onFinalReviewChange } = props;
-  const activeGoals = goals.filter((goal) => goal.active !== false && goal.createdDay <= day.day);
+  const { day, goals, tasks, editable, evaluation, profile, weeklyReview, weeklyReviewRequired, finalReview, finalReviewRequired, onDayChange, onSave, onClose, onAddGoal, onEditGoal, onPickGoals, onAddTask, onToggleTask, onDeleteTask, onReviewChange, onFinalReviewChange } = props;
+  const activeGoals = visibleGoalsForDay(day, goals);
+  const availableGoals = goals.filter((goal) => goal.active !== false && goal.createdDay <= day.day);
+  const removeGoal = (goal) => onDayChange({ ...day, visibleGoalIds: activeGoals.filter((item) => item.id !== goal.id).map((item) => item.id) });
   const coreBroken = ['alcohol-zero', 'sweet-zero'].some((id) => day.goalValues?.[id] === false);
   const energyBalance = calculateEnergyBalance(day, profile);
   const bmr = calculateBmr(day.weight, profile);
@@ -508,14 +523,14 @@ function DailyEditor(props) {
           {(bmr > 0 || energyBalance !== null) && <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs font-bold text-slate-500"><span>Базовый обмен: <strong className="text-[#102a43]">{bmr || '—'} ккал</strong></span><span>Ориентир питания: <strong className="text-[#102a43]">{CALORIE_TARGET} / {CALORIE_LIMIT}</strong></span></div>}
         </Section>
 
-        <Section title="Цели этого дня" eyebrow={`${activeGoals.length} активных`} icon={<Target />} action={<button type="button" onClick={onAddGoal} className="icon-command" title="Добавить цель"><Plus size={18} /></button>}>
+        <Section title="Цели этого дня" eyebrow={`${activeGoals.length} выбрано`} icon={<Target />} action={editable && <div className="flex shrink-0 gap-1"><button type="button" onClick={onPickGoals} className="icon-command" title="Выбрать цели на день"><ListFilter size={18} /></button><button type="button" onClick={onAddGoal} className="icon-command" title="Создать цель"><Plus size={18} /></button></div>}>
           <div className="grid gap-2">
-            {activeGoals.map((goal) => <GoalCheckin key={goal.id} goal={goal} value={day.goalValues?.[goal.id]} disabled={!editable} onEdit={() => onEditGoal(goal)} onChange={(value) => onDayChange({ ...day, goalValues: { ...(day.goalValues || {}), [goal.id]: value } })} />)}
+            {activeGoals.map((goal) => <GoalCheckin key={goal.id} goal={goal} value={day.goalValues?.[goal.id]} disabled={!editable} onEdit={() => onEditGoal(goal)} onRemove={goal.locked || !editable ? null : () => removeGoal(goal)} onChange={(value) => onDayChange({ ...day, goalValues: { ...(day.goalValues || {}), [goal.id]: value } })} />)}
           </div>
           {coreBroken && <label className="mt-3 block border border-[#f3c5bf] bg-[#fff5f3] p-3 rounded-md"><span className="text-xs font-black uppercase tracking-wide text-[#a7473e]">Что происходило перед возвратом?</span><textarea value={day.returnContext || ''} disabled={!editable} onChange={(event) => onDayChange({ ...day, returnContext: event.target.value })} placeholder="Без обвинений: ситуация, триггер и следующий выбор" className="mt-2 h-20 w-full resize-none bg-transparent text-sm font-semibold leading-6 outline-none placeholder:text-slate-400" /></label>}
         </Section>
 
-        <ActionLog goals={activeGoals} actions={day.actions || []} disabled={!editable} onChange={(actions) => onDayChange({ ...day, actions })} />
+        <ActionLog goals={availableGoals} actions={day.actions || []} disabled={!editable} onChange={(actions) => onDayChange({ ...day, actions })} />
         <CourageLog moments={day.courageMoments || []} disabled={!editable} onChange={(courageMoments) => onDayChange({ ...day, courageMoments })} />
       </div>
 
@@ -552,14 +567,24 @@ function NumberInput({ label, icon, value, onChange, disabled, step = '1' }) {
   return <label className="border border-[#dce6e9] bg-[#f7f9fa] p-2.5 rounded-md"><span className="flex items-center gap-1.5 text-xs font-black text-slate-500">{icon}{label}</span><input type="number" min="0" step={step} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className="mt-2 w-full bg-transparent text-xl font-black outline-none disabled:text-slate-400" /></label>;
 }
 
-function GoalCheckin({ goal, value, disabled, onChange, onEdit }) {
+function GoalCheckin({ goal, value, disabled, onChange, onEdit, onRemove }) {
   return (
     <div className="flex flex-col gap-3 border border-[#dce6e9] bg-[#fbfcfc] p-3 rounded-md sm:flex-row sm:items-center">
       <span className="h-10 w-1.5 shrink-0 rounded-sm" style={{ backgroundColor: goal.color }} />
-      <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="truncate text-sm font-black">{goal.name}</h3><button type="button" onClick={onEdit} className="text-slate-400 hover:text-slate-700" title="Редактировать цель"><Edit3 size={14} /></button></div><p className="mt-1 text-xs font-semibold text-slate-500">{goal.cadence === 'daily' ? 'Каждый день' : goal.cadence === 'weekly' ? `${goal.target} ${goal.unit} в неделю` : `${goal.target} ${goal.unit} за марафон`}</p></div>
+      <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="truncate text-sm font-black">{goal.name}</h3><button type="button" onClick={onEdit} className="text-slate-400 hover:text-slate-700" title={`Редактировать цель ${goal.name}`}><Edit3 size={14} /></button>{onRemove && <button type="button" onClick={onRemove} className="text-slate-400 hover:text-rose-600" title={`Убрать из этого дня: ${goal.name}`}><X size={16} /></button>}</div><p className="mt-1 text-xs font-semibold text-slate-500">{goal.cadence === 'daily' ? 'Каждый день' : goal.cadence === 'weekly' ? `${goal.target} ${goal.unit} в неделю` : `${goal.target} ${goal.unit} за марафон`}</p></div>
       {goal.type === 'binary' ? <div className="grid w-full grid-cols-2 gap-2 sm:w-44"><ChoiceButton active={value === true} label="Да" positive onClick={() => onChange(true)} disabled={disabled} /><ChoiceButton active={value === false} label="Нет" onClick={() => onChange(false)} disabled={disabled} /></div> : <label className="flex w-full items-center gap-2 border border-[#d8e3e7] bg-white px-3 py-2 rounded-md sm:w-48"><input type="number" min="0" value={value ?? ''} disabled={disabled} onChange={(event) => onChange(event.target.value)} className="min-w-0 flex-1 bg-transparent text-lg font-black outline-none" /><span className="text-xs font-bold text-slate-500">{goal.unit}</span></label>}
     </div>
   );
+}
+
+function DayGoalPicker({ day, goals, editable, onChange, onClose }) {
+  const available = goals.filter((goal) => goal.active !== false && goal.createdDay <= day.day);
+  const selected = visibleGoalsForDay(day, goals).map((goal) => goal.id);
+  const toggle = (goal) => {
+    if (!editable || goal.locked) return;
+    onChange({ ...day, visibleGoalIds: selected.includes(goal.id) ? selected.filter((id) => id !== goal.id) : [...selected, goal.id] });
+  };
+  return <ModalShell title="Цели на этот день" onClose={onClose}><div className="grid gap-2">{available.map((goal) => <button key={goal.id} type="button" disabled={!editable || goal.locked} onClick={() => toggle(goal)} aria-pressed={selected.includes(goal.id)} className={`flex min-h-12 items-center gap-3 border p-3 text-left rounded-md ${selected.includes(goal.id) ? 'border-[#9bd9bb] bg-[#effaf3]' : 'border-[#dce6e9] bg-white'} disabled:cursor-default`}><span className={`grid h-5 w-5 shrink-0 place-items-center border rounded-sm ${selected.includes(goal.id) ? 'border-[#16a36a] bg-[#16a36a] text-white' : 'border-[#b9c9cf] bg-white'}`}>{selected.includes(goal.id) && <Check size={14} />}</span><span className="min-w-0 flex-1 truncate text-sm font-black">{goal.name}</span>{goal.locked && <Lock size={15} className="text-slate-400" />}</button>)}</div><button type="button" onClick={onClose} className="mt-4 min-h-11 w-full bg-[#102a43] font-black text-white rounded-md">Готово</button></ModalShell>;
 }
 
 function ChoiceButton({ active, label, positive, onClick, disabled }) {
@@ -702,7 +727,7 @@ function TaskModal({ goals, currentDay, onSave, onClose }) {
 }
 
 function ModalShell({ title, children, onClose }) {
-  return <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[#102a43]/45 p-3 backdrop-blur-sm"><motion.section initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10 }} className="my-6 w-full max-w-xl border border-[#d8e3e7] bg-white p-4 shadow-2xl rounded-lg"><div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-2xl font-black">{title}</h2><button type="button" onClick={onClose} className="icon-command" title="Закрыть"><X size={20} /></button></div>{children}</motion.section></motion.div>;
+  return <motion.div role="dialog" aria-modal="true" aria-label={title} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[#102a43]/45 p-3 backdrop-blur-sm"><motion.section initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10 }} className="my-6 w-full max-w-xl border border-[#d8e3e7] bg-white p-4 shadow-2xl rounded-lg"><div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-2xl font-black">{title}</h2><button type="button" onClick={onClose} className="icon-command" title="Закрыть"><X size={20} /></button></div>{children}</motion.section></motion.div>;
 }
 
 function ConfirmCareer({ choice, onConfirm, onClose }) {
