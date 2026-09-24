@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ClipboardCheck,
+  Compass,
   Download,
   Edit3,
   Footprints,
@@ -38,10 +39,14 @@ import {
 import { signOut } from 'firebase/auth';
 import { auth } from './firebase';
 import { useGoogleAuth } from './auth/useGoogleAuth';
+import { roleForUser } from './auth/roles';
 import { useMarathonStore } from './marathon/useMarathonStore';
 import { useStepsStore } from './steps/useStepsStore';
 import StepsModule from './steps/StepsModule';
-import { START_COMMITMENTS, acceptCommitments } from './marathon/commitments';
+import { useLifeStore } from './life/useLifeStore';
+import CourseModule from './life/CourseModule';
+import { CodexPanel, EventsPanel, FocusActions, PatternsPanel } from './life/LifePanels';
+import { acceptCommitments, commitmentsForDuration } from './marathon/commitments';
 import journeyDawn from './assets/journey-dawn.jpg';
 import {
   CALORIE_LIMIT,
@@ -51,8 +56,10 @@ import {
   GOAL_CADENCES,
   GOAL_COLORS,
   GOAL_TYPES,
+  MARATHON_DURATIONS,
   TOTAL_DAYS,
   addDays,
+  buildMarathonSummary,
   buildExport,
   calculateBmr,
   calculateEnergyBalance,
@@ -80,8 +87,11 @@ function App() {
 
 function AccountApp({ authSession }) {
   const { user, loading: authLoading, signingIn, error: authError, signIn } = authSession;
-  const { state, ready: cloudReady, syncState, error: storageError, starting, currentDate, start, commit, retry } = useMarathonStore(user);
-  const stepsStore = useStepsStore(user);
+  const role = roleForUser(user);
+  const adminUser = role === 'admin' ? user : null;
+  const { state, history, ready: cloudReady, syncState, error: storageError, starting, currentDate, start, startNext, commit, retry } = useMarathonStore(adminUser);
+  const stepsStore = useStepsStore(cloudReady && state?.contractAcceptedAt ? adminUser : null);
+  const lifeStore = useLifeStore(cloudReady && state?.contractAcceptedAt ? adminUser : null);
   const [activeDayIndex, setActiveDayIndex] = useState(null);
   const [view, setView] = useState('today');
   const [range, setRange] = useState('30');
@@ -94,8 +104,8 @@ function AccountApp({ authSession }) {
   const [showExport, setShowExport] = useState(false);
   const [celebration, setCelebration] = useState(null);
 
-  const startJourney = async (commitments) => {
-    if (await start(commitments)) {
+  const startJourney = async (commitments, durationDays) => {
+    if (await start(commitments, durationDays)) {
       setActiveDayIndex(null);
       setView('today');
     }
@@ -103,23 +113,26 @@ function AccountApp({ authSession }) {
 
   if (authLoading) return <LoadingScreen text="Проверяю аккаунт" onRetry={() => window.location.reload()} />;
   if (!user) return <LoginScreen onSignIn={signIn} signingIn={signingIn} error={authError} />;
+  if (role !== 'admin') return <MemberPortal user={user} onLogOut={() => signOut(auth)} />;
   if (!cloudReady) return <LoadingScreen key={user.uid} text="Загружаю историю" error={storageError} onRetry={retry} onLogOut={() => signOut(auth)} />;
-  if (!state?.contractAcceptedAt) return <StartScreen onStart={startJourney} starting={starting} error={storageError} onRetry={retry} onLogOut={() => signOut(auth)} />;
+  if (!state?.contractAcceptedAt) return <StartScreen history={history} onStart={startJourney} starting={starting} error={storageError} onRetry={retry} onLogOut={() => signOut(auth)} />;
+  if (state.completedAt) return <FinishedJourney summary={state.completionSummary || buildMarathonSummary(state)} history={history} onStartNext={startNext} onLogOut={() => signOut(auth)} />;
 
-  const currentDayIndex = getCurrentDayIndex(state.startDate, currentDate);
+  const durationDays = state.durationDays || TOTAL_DAYS;
+  const currentDayIndex = getCurrentDayIndex(state.startDate, currentDate, durationDays);
   const currentDayNumber = currentDayIndex + 1;
   const selectedIndex = clamp(activeDayIndex ?? currentDayIndex, 0, currentDayIndex);
   const selectedDay = state.days[selectedIndex];
-  const journeyEnded = isJourneyEnded(state.startDate);
+  const journeyEnded = isJourneyEnded(state.startDate, durationDays);
   const editable = selectedIndex === currentDayIndex && !selectedDay.result && !journeyEnded;
-  const evaluation = selectedDay.result ? { ...DAY_RESULTS[selectedDay.result], score: selectedDay.score, canClose: true, blockers: [] } : evaluateDay(selectedDay, state.goals);
+  const evaluation = selectedDay.result ? { ...DAY_RESULTS[selectedDay.result], score: selectedDay.score, canClose: true, blockers: [] } : evaluateDay(selectedDay, state.goals, state.dayCriteria, state.resultThresholds);
   const stats = calculateStats(state, currentDayIndex, range);
   const exportData = buildExport(state, stats);
   const completedWeeks = Math.floor(currentDayNumber / 7);
   const dueReviewIndex = state.weeklyReviews.findIndex((review, index) => index < completedWeeks && !isWeeklyReviewComplete(review));
   const weeklyReview = dueReviewIndex >= 0 ? state.weeklyReviews[dueReviewIndex] : null;
   const weeklyReviewRequired = Boolean(weeklyReview);
-  const finalReviewRequired = currentDayNumber === TOTAL_DAYS && !Object.values(state.finalReview || {}).filter((value) => typeof value === 'string').every((value) => value.trim().length >= 3);
+  const finalReviewRequired = currentDayNumber === durationDays && !Object.values(state.finalReview || {}).filter((value) => typeof value === 'string').every((value) => value.trim().length >= 3);
 
   const mutateState = commit;
 
@@ -140,12 +153,18 @@ function AccountApp({ authSession }) {
   };
 
   const closeDay = () => {
-    const fresh = evaluateDay(selectedDay, state.goals);
+    const fresh = evaluateDay(selectedDay, state.goals, state.dayCriteria, state.resultThresholds);
     if (!editable || !fresh.canClose || weeklyReviewRequired || finalReviewRequired) return;
-    mutateState((previous, changedAt) => ({
-      ...previous,
-      days: previous.days.map((day, index) => index === selectedIndex ? { ...day, result: fresh.id, score: fresh.score, xp: fresh.xp, closedAt: changedAt, closureMode: 'manual', draftSavedAt: day.draftSavedAt || changedAt, draftUpdatedAt: changedAt } : day),
-    }));
+    mutateState((previous, changedAt) => {
+      const next = {
+        ...previous,
+        days: previous.days.map((day, index) => index === selectedIndex ? { ...day, result: fresh.id, score: fresh.score, xp: fresh.xp, closedAt: changedAt, closureMode: 'manual', draftSavedAt: day.draftSavedAt || changedAt, draftUpdatedAt: changedAt } : day),
+      };
+      if (selectedIndex !== durationDays - 1) return next;
+      const completed = { ...next, completedAt: changedAt };
+      const stepsCompleted = stepsStore.state?.executions?.filter((item) => !item.deletedAt).length || 0;
+      return { ...completed, completionSummary: buildMarathonSummary(completed, { stepsCompleted }) };
+    });
     setConfirmClose(false);
     setCelebration(fresh);
     window.setTimeout(() => setCelebration(null), 2200);
@@ -222,12 +241,14 @@ function AccountApp({ authSession }) {
   };
 
   const updateProfile = (patch) => mutateState((previous) => ({ ...previous, profile: { ...previous.profile, ...patch } }));
+  const updateScoring = (patch) => mutateState((previous) => ({ ...previous, ...patch }));
 
   return (
     <div className="min-h-screen bg-[#f4f7f8] text-[#102a43]">
       <CompactHeader
         currentDay={currentDayNumber}
-        progress={Math.round((currentDayNumber / TOTAL_DAYS) * 100)}
+        totalDays={durationDays}
+        progress={Math.round((currentDayNumber / durationDays) * 100)}
         syncState={syncState}
         view={view}
         onView={setView}
@@ -241,8 +262,11 @@ function AccountApp({ authSession }) {
         {view !== 'steps' && <JourneyMap
           days={state.days}
           goals={state.goals}
+          criteria={state.dayCriteria}
+          thresholds={state.resultThresholds}
           currentDayIndex={currentDayIndex}
           selectedIndex={selectedIndex}
+          totalDays={durationDays}
           startDate={state.startDate}
           onSelect={setActiveDayIndex}
           stats={stats}
@@ -250,8 +274,8 @@ function AccountApp({ authSession }) {
 
         {view === 'today' ? (
           <>
-            {state.commitments && <CommitmentSummary commitments={state.commitments} />}
-            <VisionStrip day={selectedDay} currentDayNumber={currentDayNumber} />
+            {state.commitments && <CommitmentSummary commitments={state.commitments} totalDays={durationDays} />}
+            <VisionStrip day={selectedDay} currentDayNumber={currentDayNumber} totalDays={durationDays} />
             <CareerStrip decision={state.careerDecision} onChoose={setCareerChoice} />
             <DailyEditor
               day={selectedDay}
@@ -264,6 +288,9 @@ function AccountApp({ authSession }) {
               weeklyReviewRequired={weeklyReviewRequired}
               finalReview={state.finalReview}
               finalReviewRequired={finalReviewRequired}
+              totalDays={durationDays}
+              lifeState={lifeStore.state}
+              lifeCommit={lifeStore.commit}
               onDayChange={updateDay}
               onSave={saveDraft}
               onClose={() => setConfirmClose(true)}
@@ -278,16 +305,23 @@ function AccountApp({ authSession }) {
             />
           </>
         ) : view === 'steps' ? (
-          <StepsModule {...stepsStore} newStepRequest={newStepRequest} />
+          <StepsModule {...stepsStore} goals={state.goals} lifeState={lifeStore.state} newStepRequest={newStepRequest} />
+        ) : view === 'course' ? (
+          <CourseModule user={user} {...lifeStore} marathon={state} steps={stepsStore.state} />
         ) : (
           <StatsDashboard
+            user={user}
             state={state}
             stats={stats}
+            lifeState={lifeStore.state}
+            lifeCommit={lifeStore.commit}
             range={range}
             onRange={setRange}
             onEditGoal={(goal) => setGoalEditor({ mode: 'edit', goal })}
             onAddGoal={() => setGoalEditor({ mode: 'new' })}
             onProfileChange={updateProfile}
+            onScoringChange={updateScoring}
+            totalDays={durationDays}
           />
         )}
       </div>
@@ -297,10 +331,10 @@ function AccountApp({ authSession }) {
       <AnimatePresence>
         {goalEditor && <GoalModal key="goal-editor" mode={goalEditor.mode} goal={goalEditor.goal} goals={state.goals} onSave={saveGoal} onArchive={archiveGoal} onClose={() => setGoalEditor(null)} />}
         {goalPickerOpen && <DayGoalPicker key="goal-picker" day={selectedDay} goals={state.goals} editable={editable} onChange={updateDay} onClose={() => setGoalPickerOpen(false)} />}
-        {taskEditorOpen && <TaskModal key="task-editor" goals={state.goals} currentDay={currentDayNumber} onSave={addTask} onClose={() => setTaskEditorOpen(false)} />}
+        {taskEditorOpen && <TaskModal key="task-editor" goals={state.goals} currentDay={currentDayNumber} totalDays={durationDays} onSave={addTask} onClose={() => setTaskEditorOpen(false)} />}
         {careerChoice && <ConfirmCareer key="career-choice" choice={careerChoice} onConfirm={confirmCareer} onClose={() => setCareerChoice(null)} />}
         {confirmClose && <ConfirmClose key="close-day" evaluation={evaluation} weeklyRequired={weeklyReviewRequired} finalRequired={finalReviewRequired} onConfirm={closeDay} onClose={() => setConfirmClose(false)} />}
-        {showExport && <ExportModal key="export" data={exportData} onClose={() => setShowExport(false)} />}
+        {showExport && <ExportModal key="export" data={exportData} totalDays={durationDays} onClose={() => setShowExport(false)} />}
         {celebration && <Celebration key="celebration" result={celebration} />}
       </AnimatePresence>
     </div>
@@ -333,7 +367,7 @@ function LoginScreen({ onSignIn, signingIn, error }) {
   return (
     <div className="grid min-h-screen place-items-center bg-[#f4f7f8] p-4">
       <section className="w-full max-w-lg border border-[#dbe5e9] bg-white p-6 shadow-sm rounded-lg">
-        <div className="text-sm font-black uppercase tracking-wide text-[#0d8fb9]">Марафон 120</div>
+        <div className="text-sm font-black uppercase tracking-wide text-[#0d8fb9]">Марафон перемен</div>
         <h1 className="mt-3 text-4xl font-black leading-tight">Один путь. Все данные на месте.</h1>
         <p className="mt-4 font-semibold leading-7 text-slate-600">Твой марафон, на телефоне и компьютере.</p>
         <button type="button" onClick={onSignIn} disabled={signingIn} aria-busy={signingIn} className="mt-6 inline-flex min-h-[50px] w-full items-center justify-center gap-2 bg-[#102a43] px-5 font-black text-white disabled:cursor-wait disabled:opacity-70 rounded-md">{signingIn ? <Loader2 size={18} className="animate-spin" /> : <LogIn size={18} />}{signingIn ? 'Ожидаю Google…' : 'Войти через Google'}</button>
@@ -343,16 +377,31 @@ function LoginScreen({ onSignIn, signingIn, error }) {
   );
 }
 
-function StartScreen({ onStart, starting, error, onRetry, onLogOut }) {
+function MemberPortal({ user, onLogOut }) {
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#f4f7f8] p-4 text-[#102a43]">
+      <section className="w-full max-w-lg border border-[#d8e3e7] bg-white p-6 shadow-sm rounded-lg">
+        <div className="flex items-center justify-between gap-3"><div className="text-sm font-black uppercase tracking-wide text-[#0d8fb9]">Личное пространство</div><button type="button" onClick={onLogOut} className="icon-command" title="Выйти"><LogOut size={18} /></button></div>
+        <h1 className="mt-4 text-3xl font-black leading-tight">Вы вошли как участник</h1>
+        <p className="mt-3 font-semibold leading-7 text-slate-600">Административные данные и экраны скрыты. Для обычных пользователей здесь будет отдельный сценарий старта.</p>
+        <div className="mt-5 border-t border-[#e1e9ec] pt-4 text-sm font-bold text-slate-500">{user.displayName || 'Аккаунт Google'}</div>
+      </section>
+    </div>
+  );
+}
+
+function StartScreen({ history, onStart, starting, error, onRetry, onLogOut }) {
   const [checked, setChecked] = useState({});
   const [purpose, setPurpose] = useState('');
+  const [durationDays, setDurationDays] = useState(TOTAL_DAYS);
   const [confirming, setConfirming] = useState(false);
-  const acceptedCount = START_COMMITMENTS.filter((item) => checked[item.id]).length;
-  const accepted = Boolean(acceptCommitments(checked, purpose, new Date().toISOString()));
+  const commitments = commitmentsForDuration(durationDays);
+  const acceptedCount = commitments.filter((item) => checked[item.id]).length;
+  const accepted = Boolean(acceptCommitments(checked, purpose, new Date().toISOString(), durationDays));
   const confirmStart = () => {
-    const commitments = acceptCommitments(checked, purpose, new Date().toISOString());
-    if (!commitments || starting) return;
-    onStart(commitments);
+    const acceptedCommitments = acceptCommitments(checked, purpose, new Date().toISOString(), durationDays);
+    if (!acceptedCommitments || starting) return;
+    onStart(acceptedCommitments, durationDays);
     setConfirming(false);
   };
   return (
@@ -361,46 +410,85 @@ function StartScreen({ onStart, starting, error, onRetry, onLogOut }) {
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(248,252,253,0.98)_0%,rgba(248,252,253,0.88)_48%,rgba(248,252,253,0.12)_100%)]" />
         <div className="relative mx-auto max-w-4xl px-5 py-10 sm:py-14">
           <div className="flex items-center justify-between gap-3"><div className="text-sm font-black uppercase text-[#0d8fb9]">Мой осознанный выбор</div><button type="button" onClick={onLogOut} className="icon-command" title="Выйти"><LogOut size={18} /></button></div>
-          <h1 className="mt-4 max-w-xl text-4xl font-black leading-tight text-[#102a43] sm:text-5xl">120 дней перемен</h1>
+          <h1 className="mt-4 max-w-xl text-4xl font-black leading-tight text-[#102a43] sm:text-5xl">{durationDays} дней перемен</h1>
           <p className="mt-4 max-w-xl text-lg font-semibold leading-7 text-slate-700">Я выбираю свободу от старых привычек. Сильное тело, действия к цели и доверие к себе.</p>
           <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm font-bold text-[#16865f]"><span>65 кг · форма и энергия</span><span>Ценность в работе</span><span>Свобода проявляться</span></div>
         </div>
       </section>
       <div className="mx-auto max-w-4xl px-4 py-6 sm:px-5">
-        <div className="flex items-center justify-between gap-3"><h2 className="text-2xl font-black">Мои аскезы</h2><span className="shrink-0 text-sm font-bold text-[#16865f]">{acceptedCount} из {START_COMMITMENTS.length}</span></div>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Аскеза — добровольная практика самодисциплины ради выбранной цели. Здесь я принимаю конкретные обязательства на 120 календарных дней.</p>
+        <section className="mb-6 border border-[#b9dce8] bg-white p-4 shadow-sm rounded-lg">
+          <div className="text-sm font-black text-[#0d7ea5]">Срок марафона</div>
+          <div className="mt-3 grid grid-cols-3 gap-2">{MARATHON_DURATIONS.map((duration) => <button key={duration} type="button" onClick={() => setDurationDays(duration)} aria-pressed={durationDays === duration} className={`min-h-[52px] border px-3 font-black rounded-md ${durationDays === duration ? 'border-[#0d8fb9] bg-[#0d8fb9] text-white' : 'border-[#d8e3e7] bg-[#f7f9fa] text-slate-600'}`}>{duration} дней</button>)}</div>
+        </section>
+        <div className="flex items-center justify-between gap-3"><h2 className="text-2xl font-black">Мои аскезы</h2><span className="shrink-0 text-sm font-bold text-[#16865f]">{acceptedCount} из {commitments.length}</span></div>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Аскеза — добровольная практика самодисциплины ради выбранной цели. Здесь я принимаю конкретные обязательства на {durationDays} календарных дней.</p>
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          {START_COMMITMENTS.map((item, index) => <label key={item.id} className={`flex cursor-pointer items-start gap-3 border p-4 transition-colors rounded-lg ${checked[item.id] ? 'border-[#8dd6ad] bg-[#ecfbf3]' : 'border-[#d8e3e7] bg-white'}`}><input type="checkbox" aria-label={item.title} checked={Boolean(checked[item.id])} onChange={(event) => setChecked({ ...checked, [item.id]: event.target.checked })} className="mt-1 h-5 w-5 shrink-0 accent-[#16a36a]" /><span className="min-w-0"><span className="text-xs font-bold text-[#0d8fb9]">0{index + 1} · {item.metric}</span><strong className="mt-1 block text-base leading-6">{item.title}</strong><span className="mt-2 block text-sm leading-6 text-slate-600">{item.text}</span></span></label>)}
+          {commitments.map((item, index) => <label key={item.id} className={`flex cursor-pointer items-start gap-3 border p-4 transition-colors rounded-lg ${checked[item.id] ? 'border-[#8dd6ad] bg-[#ecfbf3]' : 'border-[#d8e3e7] bg-white'}`}><input type="checkbox" aria-label={item.title} checked={Boolean(checked[item.id])} onChange={(event) => setChecked({ ...checked, [item.id]: event.target.checked })} className="mt-1 h-5 w-5 shrink-0 accent-[#16a36a]" /><span className="min-w-0"><span className="text-xs font-bold text-[#0d8fb9]">0{index + 1} · {item.metric}</span><strong className="mt-1 block text-base leading-6">{item.title}</strong><span className="mt-2 block text-sm leading-6 text-slate-600">{item.text}</span></span></label>)}
         </div>
-        <label className="mt-6 block font-bold">Ради чего я прохожу эти 120 дней<textarea value={purpose} onChange={(event) => setPurpose(event.target.value)} maxLength={1000} placeholder="Какие изменения я хочу увидеть в своих действиях, теле и отношении к себе?" className="field-control mt-2 min-h-[100px] resize-y" /><span className="mt-1 block text-xs font-normal text-slate-500">Мой личный смысл · минимум 10 символов</span></label>
-        <div className="mt-5 border-y border-[#d8e3e7] py-4 text-sm leading-6 text-slate-600">Старт — {formatShortDate(todayKey())}. День 120 — {formatShortDate(addDays(todayKey(), TOTAL_DAYS - 1))}. Подтверждая, я фиксирую дату старта и эти обязательства на весь марафон.</div>
+        <label className="mt-6 block font-bold">Ради чего я прохожу эти {durationDays} дней<textarea value={purpose} onChange={(event) => setPurpose(event.target.value)} maxLength={1000} placeholder="Какие изменения я хочу увидеть в своих действиях, теле и отношении к себе?" className="field-control mt-2 min-h-[100px] resize-y" /><span className="mt-1 block text-xs font-normal text-slate-500">Мой личный смысл · минимум 10 символов</span></label>
+        <div className="mt-5 border-y border-[#d8e3e7] py-4 text-sm leading-6 text-slate-600">Старт — {formatShortDate(todayKey())}. День {durationDays} — {formatShortDate(addDays(todayKey(), durationDays - 1))}. Подтверждая, я фиксирую дату старта и эти обязательства на весь марафон.</div>
         {error && <div role="alert" className="mt-4 text-sm text-rose-700">{error} <button type="button" onClick={onRetry} className="font-bold underline">Повторить синхронизацию</button></div>}
         <button type="button" disabled={!accepted || starting} onClick={() => setConfirming(true)} className="mt-5 inline-flex min-h-[54px] w-full items-center justify-center gap-2 bg-[#16a36a] px-4 text-base font-black text-white disabled:bg-slate-300 rounded-md">{starting ? <Loader2 size={19} className="animate-spin" /> : <Zap size={19} />}{starting ? 'Подтверждаю старт…' : 'Принимаю обязательства. Начать'}</button>
         <p className="mt-3 text-sm leading-6 text-slate-500">При физической зависимости от алкоголя прекращение употребления может потребовать помощи врача. Поддержка и лечение совместимы с этим выбором.</p>
         <div className="mt-3 flex flex-wrap gap-4 text-xs text-[#0d7ea5]"><a href="https://bigenc.ru/c/asketizm-f52e39" target="_blank" rel="noreferrer" className="underline">Смысл аскезы: БРЭ</a><a href="https://www.niddk.nih.gov/health-information/diet-nutrition/changing-habits-better-health" target="_blank" rel="noreferrer" className="underline">Изменение привычек: NIDDK</a><a href="https://www.niaaa.nih.gov/publications/brochures-and-fact-sheets/understanding-alcohol-use-disorder" target="_blank" rel="noreferrer" className="underline">Об алкоголе и помощи: NIAAA</a></div>
+        {history.length > 0 && <MarathonHall items={history} />}
       </div>
-      <AnimatePresence>{confirming && <SimpleConfirm title="Начать 120 дней?" text={`Все ${START_COMMITMENTS.length} обязательств приняты. Мой смысл: «${purpose.trim()}». Старт: ${formatLongDate(todayKey())}.`} confirm="Да, начинаю" disabled={!accepted || starting} onConfirm={confirmStart} onClose={() => setConfirming(false)} />}</AnimatePresence>
+      <AnimatePresence>{confirming && <SimpleConfirm title={`Начать ${durationDays} дней?`} text={`Все ${commitments.length} обязательств приняты. Мой смысл: «${purpose.trim()}». Старт: ${formatLongDate(todayKey())}.`} confirm="Да, начинаю" disabled={!accepted || starting} onConfirm={confirmStart} onClose={() => setConfirming(false)} />}</AnimatePresence>
     </div>
   );
 }
 
-function CommitmentSummary({ commitments }) {
-  return <details className="border-y border-[#d8e3e7] py-3"><summary className="flex cursor-pointer items-center justify-between gap-3 text-sm font-bold text-[#16865f]"><span className="flex items-center gap-2"><Heart size={17} />Мой выбор на 120 дней</span><ChevronDown size={17} /></summary><p className="mt-3 font-semibold leading-6">{commitments.purpose}</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{commitments.items.map((item) => <div key={item.id}><h3 className="text-sm font-bold">{item.title}</h3><p className="mt-1 text-sm leading-6 text-slate-600">{item.text}</p></div>)}</div></details>;
+function FinishedJourney({ summary, history, onStartNext, onLogOut }) {
+  const [confirming, setConfirming] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const beginNext = async () => {
+    setStarting(true);
+    await onStartNext();
+    setStarting(false);
+    setConfirming(false);
+  };
+  return (
+    <div className="min-h-screen bg-[#f4f7f8] px-4 py-8 text-[#102a43]">
+      <div className="mx-auto max-w-4xl">
+        <div className="flex justify-end"><button type="button" onClick={onLogOut} className="icon-command" title="Выйти"><LogOut size={18} /></button></div>
+        <section className="mt-4 overflow-hidden border border-[#b8e0cb] bg-white shadow-xl rounded-lg">
+          <div className="bg-[#102a43] p-6 text-white sm:p-8"><Trophy size={40} className="text-[#f2c14e]" /><div className="mt-4 text-sm font-black uppercase text-[#8bd9bd]">Марафон завершён</div><h1 className="mt-2 text-4xl font-black">{summary.status}</h1><p className="mt-3 font-semibold text-slate-200">{summary.durationDays} дней · {formatShortDate(summary.startDate)} — {formatShortDate(summary.finishDate)}</p></div>
+          <div className="grid grid-cols-2 gap-px bg-[#d8e3e7] sm:grid-cols-4"><HallMetric label="Зачтено" value={`${summary.completionRate}%`} /><HallMetric label="Сильных дней" value={summary.greenDays} /><HallMetric label="Шагов" value={summary.stepsCompleted} /><HallMetric label="Вес" value={summary.finishWeight ? `${summary.finishWeight} кг` : '—'} /></div>
+          <div className="p-5 sm:p-6"><p className="font-semibold leading-7 text-slate-600">{summary.purpose}</p><button type="button" onClick={() => setConfirming(true)} className="mt-5 inline-flex min-h-[50px] w-full items-center justify-center gap-2 bg-[#16a36a] px-4 font-black text-white rounded-md"><Zap size={18} />Начать новый марафон</button></div>
+        </section>
+        <MarathonHall items={history} />
+      </div>
+      <AnimatePresence>{confirming && <SimpleConfirm title="Перейти к новому марафону?" text="Завершённый путь останется в Зале пути. Затем откроется новый экран старта." confirm={starting ? 'Сохраняю…' : 'Да, перейти'} disabled={starting} onConfirm={beginNext} onClose={() => setConfirming(false)} />}</AnimatePresence>
+    </div>
+  );
 }
 
-function CompactHeader({ currentDay, progress, syncState, view, onView, onGoals, onExport, onLogOut }) {
+function MarathonHall({ items }) {
+  return <section className="mt-8 border-t border-[#d8e3e7] pt-6"><div className="flex items-center gap-2 text-sm font-black text-[#8b6b16]"><Trophy size={18} />Зал пути</div><h2 className="mt-1 text-2xl font-black">Завершённые марафоны</h2><div className="mt-4 grid gap-3">{items.map((item) => <details key={item.journeyId} className="border border-[#dfd6ad] bg-[#fffdf2] p-4 rounded-lg"><summary className="flex cursor-pointer items-center justify-between gap-3"><span><strong className="block">{item.status}</strong><small className="mt-1 block font-bold text-slate-500">{item.durationDays} дней · {formatShortDate(item.startDate)} — {formatShortDate(item.finishDate)}</small></span><ChevronDown size={18} /></summary><div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4"><SummaryMini label="Сильных" value={item.greenDays} /><SummaryMini label="Возвратов" value={item.redDays} /><SummaryMini label="Шагов" value={item.stepsCompleted} /><SummaryMini label="Вес" value={item.finishWeight ? `${item.finishWeight} кг` : '—'} /></div>{item.purpose && <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">{item.purpose}</p>}</details>)}</div></section>;
+}
+
+function HallMetric({ label, value }) {
+  return <div className="bg-white p-4 text-center"><div className="text-xs font-black text-slate-500">{label}</div><div className="mt-1 text-2xl font-black">{value}</div></div>;
+}
+
+function CommitmentSummary({ commitments, totalDays }) {
+  return <details className="border-y border-[#d8e3e7] py-3"><summary className="flex cursor-pointer items-center justify-between gap-3 text-sm font-bold text-[#16865f]"><span className="flex items-center gap-2"><Heart size={17} />Мой выбор на {totalDays} дней</span><ChevronDown size={17} /></summary><p className="mt-3 font-semibold leading-6">{commitments.purpose}</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{commitments.items.map((item) => <div key={item.id}><h3 className="text-sm font-bold">{item.title}</h3><p className="mt-1 text-sm leading-6 text-slate-600">{item.text}</p></div>)}</div></details>;
+}
+
+function CompactHeader({ currentDay, totalDays, progress, syncState, view, onView, onGoals, onExport, onLogOut }) {
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <header className="sticky top-0 z-40 border-b border-[#d9e4e8] bg-white/95 backdrop-blur-xl">
       <div className="mx-auto flex min-h-[64px] max-w-7xl items-center gap-3 px-3 sm:px-5 lg:px-7">
-        <button type="button" onClick={() => onView('today')} className="flex shrink-0 items-baseline gap-1 text-left"><strong className="text-2xl font-black text-[#102a43]">120</strong><span className="hidden text-xs font-black uppercase text-[#0d8fb9] sm:inline">дней</span></button>
+        <button type="button" onClick={() => onView('today')} className="flex shrink-0 items-baseline gap-1 text-left"><strong className="text-2xl font-black text-[#102a43]">{totalDays}</strong><span className="hidden text-xs font-black uppercase text-[#0d8fb9] sm:inline">дней</span></button>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2 text-xs font-black text-slate-500"><span>День {currentDay} из 120</span><span>{progress}%</span></div>
+          <div className="flex items-center justify-between gap-2 text-xs font-black text-slate-500"><span>День {currentDay} из {totalDays}</span><span>{progress}%</span></div>
           <div className="mt-1 h-2 overflow-hidden bg-[#e9eff2] rounded-sm"><motion.div className="h-full bg-[#16a36a]" animate={{ width: `${progress}%` }} /></div>
         </div>
         <div className="hidden items-center gap-1 sm:flex">
           <NavButton active={view === 'today'} icon={<Home size={17} />} label="Сегодня" onClick={() => onView('today')} />
           <NavButton active={view === 'steps'} icon={<Footprints size={17} />} label="Шаги" onClick={() => onView('steps')} />
+          <NavButton active={view === 'course'} icon={<Compass size={17} />} label="Курс" onClick={() => onView('course')} />
           <NavButton active={view === 'stats'} icon={<BarChart3 size={17} />} label="Статистика" onClick={() => onView('stats')} />
         </div>
         <span role="status" aria-label={syncState === 'offline' ? 'Сохранено на устройстве, ожидает синхронизации' : syncState === 'saving' ? 'Сохраняю в облако' : 'Сохранено в облаке'} className={`h-2.5 w-2.5 shrink-0 rounded-full ${syncState === 'offline' ? 'bg-rose-500' : syncState === 'saving' ? 'animate-pulse bg-amber-400' : 'bg-emerald-500'}`} title={syncState === 'offline' ? 'Сохранено на устройстве' : syncState === 'saving' ? 'Сохраняю в облако' : 'Сохранено в облаке'} />
@@ -421,15 +509,16 @@ function MenuItem({ icon, label, onClick }) {
   return <button type="button" onClick={onClick} className="flex min-h-[42px] w-full items-center gap-3 px-3 text-left text-sm font-black text-slate-700 hover:bg-[#f1f5f7] rounded-md">{icon}{label}</button>;
 }
 
-function MobileNav({ view, onView, onAdd }) {
-  return <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#d9e4e8] bg-white/95 px-3 py-2 backdrop-blur-xl sm:hidden"><div className="mx-auto grid max-w-sm grid-cols-4 gap-1"><MobileNavButton active={view === 'today'} icon={<Home />} label="День" onClick={() => onView('today')} /><MobileNavButton active={view === 'steps'} icon={<Footprints />} label="Шаги" onClick={() => onView('steps')} /><button type="button" onClick={onAdd} className="mx-auto grid h-12 w-12 place-items-center bg-[#f06c5f] text-white shadow-lg rounded-md" title={view === 'steps' ? 'Новый шаг' : 'Добавить задачу'}><Plus /></button><MobileNavButton active={view === 'stats'} icon={<BarChart3 />} label="Статистика" onClick={() => onView('stats')} /></div></nav>;
+function MobileNav({ view, onView }) {
+  return <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#d9e4e8] bg-white/95 px-2 py-2 backdrop-blur-xl sm:hidden"><div className="mx-auto grid max-w-md grid-cols-4 gap-1"><MobileNavButton active={view === 'today'} icon={<Home />} label="Сегодня" onClick={() => onView('today')} /><MobileNavButton active={view === 'steps'} icon={<Footprints />} label="Шаги" onClick={() => onView('steps')} /><MobileNavButton active={view === 'course'} icon={<Compass />} label="Курс" onClick={() => onView('course')} /><MobileNavButton active={view === 'stats'} icon={<BarChart3 />} label="Статистика" onClick={() => onView('stats')} /></div></nav>;
 }
 
 function MobileNavButton({ active, icon, label, onClick }) {
   return <button type="button" onClick={onClick} className={`flex min-h-[48px] flex-col items-center justify-center gap-1 text-[11px] font-black rounded-md ${active ? 'bg-[#eaf8fd] text-[#0d8fb9]' : 'text-slate-500'}`}>{icon}{label}</button>;
 }
 
-function JourneyMap({ days, goals, currentDayIndex, selectedIndex, onSelect, stats }) {
+function JourneyMap({ days, goals, criteria, thresholds, currentDayIndex, selectedIndex, totalDays, onSelect, stats }) {
+  const [open, setOpen] = useState(false);
   const scrollerRef = useRef(null);
   const currentRef = useRef(null);
   useEffect(() => {
@@ -437,17 +526,27 @@ function JourneyMap({ days, goals, currentDayIndex, selectedIndex, onSelect, sta
     const tile = currentRef.current;
     if (scroller && tile) scroller.scrollTop = Math.max(0, scroller.scrollTop + tile.getBoundingClientRect().top - scroller.getBoundingClientRect().top - scroller.clientHeight / 2 + tile.clientHeight / 2);
   }, [currentDayIndex]);
+  const results = days.slice(0, currentDayIndex + 1).map((day) => getDayResult(day, goals, criteria, thresholds));
+  const isGreen = (result) => ['strong', 'expansion'].includes(result?.id);
+  const green7 = results.slice(-7).filter(isGreen).length;
+  const green30 = results.slice(-30).filter(isGreen).length;
+  let currentStreak = 0;
+  for (let index = results.length - 1; index >= 0 && isGreen(results[index]); index -= 1) currentStreak += 1;
+  let bestStreak = 0; let running = 0;
+  results.forEach((result) => { running = isGreen(result) ? running + 1 : 0; bestStreak = Math.max(bestStreak, running); });
+  if (!open) return <button type="button" onClick={() => setOpen(true)} className="w-full border border-[#d8e3e7] bg-white p-4 text-left shadow-sm rounded-lg"><div className="flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center bg-[#eaf8fd] text-[#0d7ea5] rounded-md"><CalendarDays size={20} /></span><div><div className="font-black">Дни</div><div className="text-xs font-bold text-slate-500">День {currentDayIndex + 1} из {totalDays} · зачтено {stats.completionRate}%</div></div></div><ChevronDown size={18} className="shrink-0 text-slate-400" /></div><div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs font-bold text-slate-500"><span>7 дней<strong className="mt-1 block text-base text-[#102a43]">{green7}</strong></span><span>30 дней<strong className="mt-1 block text-base text-[#102a43]">{green30}</strong></span><span>серия<strong className="mt-1 block text-base text-[#102a43]">{currentStreak}</strong></span><span>лучшая<strong className="mt-1 block text-base text-[#102a43]">{bestStreak}</strong></span></div></button>;
   return (
     <section className="border border-[#d8e3e7] bg-white shadow-sm rounded-lg">
       <div className="flex flex-col gap-3 border-b border-[#e1e9ec] p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div><div className="flex items-center gap-2 text-sm font-black text-[#0d8fb9]"><CalendarDays size={18} />Карта марафона</div><h1 className="mt-1 text-2xl font-black">Все 120 дней перед глазами</h1></div>
+        <div><div className="flex items-center gap-2 text-sm font-black text-[#0d8fb9]"><CalendarDays size={18} />Карта марафона</div><h1 className="mt-1 text-2xl font-black">Все {totalDays} дней перед глазами</h1></div>
+        <button type="button" onClick={() => setOpen(false)} className="icon-command ml-auto" title="Свернуть"><ChevronDown size={18} className="rotate-180" /></button>
         <div className="flex flex-wrap gap-2 text-xs font-black"><Legend color="#16a36a" label="сильный" /><Legend color="#0d8fb9" label="прорыв" /><Legend color="#f06c5f" label="возврат" /><Legend color="#cbd5e1" label="впереди" /></div>
       </div>
       <div ref={scrollerRef} className="journey-map-scroll max-h-[390px] overflow-y-auto p-3 sm:max-h-[430px] sm:p-4">
         <div className="grid grid-cols-5 gap-2 sm:grid-cols-8 lg:grid-cols-12">
           {days.map((day, index) => {
             const future = index > currentDayIndex;
-            const result = getDayResult(day, goals);
+            const result = getDayResult(day, goals, criteria, thresholds);
             const partial = index < currentDayIndex && !result && hasDayData(day);
             const missed = index < currentDayIndex && !result && !partial;
             const selected = index === selectedIndex;
@@ -485,11 +584,11 @@ function MapStat({ label, value }) {
   return <div className="border-r border-[#e1e9ec] px-2 py-3 last:border-r-0"><span>{label}</span><strong className="ml-1 text-[#102a43]">{value}</strong></div>;
 }
 
-function VisionStrip({ day, currentDayNumber }) {
+function VisionStrip({ day, currentDayNumber, totalDays }) {
   return (
     <section className="relative min-h-[150px] overflow-hidden border border-[#b9dce8] bg-[#eaf8fd] rounded-lg" style={{ backgroundImage: `url(${journeyDawn})`, backgroundPosition: 'center right', backgroundSize: 'cover' }}>
       <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(244,251,253,0.98)_0%,rgba(244,251,253,0.89)_55%,rgba(244,251,253,0.15)_100%)]" />
-      <div className="relative max-w-2xl p-4 sm:p-5"><div className="text-xs font-black uppercase tracking-wide text-[#0d8fb9]">День {day.day} · {formatLongDate(day.date)}</div><h2 className="mt-2 text-2xl font-black sm:text-3xl">Не ждать другого состояния. Сделать следующий выбор.</h2><p className="mt-2 max-w-xl text-sm font-semibold leading-6 text-slate-600">До финала {Math.max(0, TOTAL_DAYS - currentDayNumber)} дней. Карта сохранит не идеальную картинку, а реальный путь.</p></div>
+      <div className="relative max-w-2xl p-4 sm:p-5"><div className="text-xs font-black uppercase tracking-wide text-[#0d8fb9]">День {day.day} · {formatLongDate(day.date)}</div><h2 className="mt-2 text-2xl font-black sm:text-3xl">Не ждать другого состояния. Сделать следующий выбор.</h2><p className="mt-2 max-w-xl text-sm font-semibold leading-6 text-slate-600">До финала {Math.max(0, totalDays - currentDayNumber)} дней. Карта сохранит не идеальную картинку, а реальный путь.</p></div>
     </section>
   );
 }
@@ -506,7 +605,7 @@ function CareerStrip({ decision, onChoose }) {
 }
 
 function DailyEditor(props) {
-  const { day, goals, tasks, editable, evaluation, profile, weeklyReview, weeklyReviewRequired, finalReview, finalReviewRequired, onDayChange, onSave, onClose, onAddGoal, onEditGoal, onPickGoals, onAddTask, onToggleTask, onDeleteTask, onReviewChange, onFinalReviewChange } = props;
+  const { day, goals, tasks, editable, evaluation, profile, weeklyReview, weeklyReviewRequired, finalReview, finalReviewRequired, totalDays, lifeState, lifeCommit, onDayChange, onSave, onClose, onAddGoal, onEditGoal, onPickGoals, onAddTask, onToggleTask, onDeleteTask, onReviewChange, onFinalReviewChange } = props;
   const activeGoals = visibleGoalsForDay(day, goals);
   const availableGoals = goals.filter((goal) => goal.active !== false && goal.createdDay <= day.day);
   const removeGoal = (goal) => onDayChange({ ...day, visibleGoalIds: activeGoals.filter((item) => item.id !== goal.id).map((item) => item.id) });
@@ -518,6 +617,8 @@ function DailyEditor(props) {
   return (
     <div className="grid min-w-0 gap-4 lg:grid-cols-[1.18fr_0.82fr]">
       <div className="grid min-w-0 content-start gap-4">
+        <FocusActions day={day} editable={editable} onDayChange={onDayChange} />
+        {lifeState && <CodexPanel state={lifeState} day={day} editable={editable} commit={lifeCommit} onDayChange={onDayChange} />}
         <Section title="Показатели тела" eyebrow={energyBalance === null ? 'Нужны данные' : energyBalance < 0 ? `Дефицит ${Math.abs(energyBalance)} ккал` : `Профицит ${energyBalance} ккал`} icon={<Activity />}>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><NumberInput label="Калории" icon={<Utensils />} value={day.calories} disabled={!editable} onChange={(calories) => onDayChange({ ...day, calories })} /><NumberInput label="Активные" icon={<BatteryCharging />} value={day.activeCalories} disabled={!editable} onChange={(activeCalories) => onDayChange({ ...day, activeCalories })} /><NumberInput label="Шаги" icon={<Footprints />} value={day.steps} disabled={!editable} onChange={(steps) => onDayChange({ ...day, steps })} /><NumberInput label="Вес, кг" icon={<Scale />} value={day.weight} step="0.1" disabled={!editable} onChange={(weight) => onDayChange({ ...day, weight })} /></div>
           {(bmr > 0 || energyBalance !== null) && <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs font-bold text-slate-500"><span>Базовый обмен: <strong className="text-[#102a43]">{bmr || '—'} ккал</strong></span><span>Ориентир питания: <strong className="text-[#102a43]">{CALORIE_TARGET} / {CALORIE_LIMIT}</strong></span></div>}
@@ -530,18 +631,14 @@ function DailyEditor(props) {
           {coreBroken && <label className="mt-3 block border border-[#f3c5bf] bg-[#fff5f3] p-3 rounded-md"><span className="text-xs font-black uppercase tracking-wide text-[#a7473e]">Что происходило перед возвратом?</span><textarea value={day.returnContext || ''} disabled={!editable} onChange={(event) => onDayChange({ ...day, returnContext: event.target.value })} placeholder="Без обвинений: ситуация, триггер и следующий выбор" className="mt-2 h-20 w-full resize-none bg-transparent text-sm font-semibold leading-6 outline-none placeholder:text-slate-400" /></label>}
         </Section>
 
-        <ActionLog goals={availableGoals} actions={day.actions || []} disabled={!editable} onChange={(actions) => onDayChange({ ...day, actions })} />
-        <CourageLog moments={day.courageMoments || []} disabled={!editable} onChange={(courageMoments) => onDayChange({ ...day, courageMoments })} />
       </div>
 
       <div className="grid min-w-0 content-start gap-4">
-        <Section title="Доказательство дня" eyebrow="Доверие к себе строится фактами" icon={<Heart />} tone="coral">
-          <textarea value={day.evidence || ''} disabled={!editable} onChange={(event) => onDayChange({ ...day, evidence: event.target.value })} placeholder="Что сегодня подтвердило: я могу действовать и держать слово себе?" className="h-28 w-full resize-none border border-[#eadfdc] bg-white p-3 text-sm font-semibold leading-6 outline-none focus:border-[#f06c5f] rounded-md" />
-        </Section>
+        <details className="border border-[#d8e3e7] bg-white rounded-lg"><summary className="flex min-h-[56px] cursor-pointer items-center justify-between gap-3 px-4 font-black"><span className="flex items-center gap-2"><Heart size={18} className="text-[#c65347]" />Рефлексия дня <small className="font-bold text-slate-400">необязательно</small></span><ChevronDown size={18} /></summary><div className="grid gap-4 border-t border-[#e1e9ec] p-4"><label className="block"><span className="text-sm font-black">Победа дня</span><textarea value={day.evidence || ''} disabled={!editable} onChange={(event) => onDayChange({ ...day, evidence: event.target.value })} placeholder="Какой факт сегодня доказывает, что я двигаюсь?" className="mt-2 h-28 w-full resize-none border border-[#eadfdc] bg-[#fffaf9] p-3 text-sm font-semibold leading-6 outline-none focus:border-[#f06c5f] rounded-md" /></label><ActionLog goals={availableGoals} actions={day.actions || []} disabled={!editable} onChange={(actions) => onDayChange({ ...day, actions })} /><CourageLog moments={day.courageMoments || []} disabled={!editable} onChange={(courageMoments) => onDayChange({ ...day, courageMoments })} /></div></details>
 
         <TaskPanel tasks={relevantTasks} goals={goals} disabled={!editable} onAdd={onAddTask} onToggle={onToggleTask} onDelete={onDeleteTask} />
         {weeklyReview && <WeeklyReview review={weeklyReview} required={weeklyReviewRequired} disabled={!editable} onChange={onReviewChange} />}
-        {day.day === TOTAL_DAYS && <FinalReview review={finalReview} required={finalReviewRequired} disabled={!editable} onChange={onFinalReviewChange} />}
+        {day.day === totalDays && <FinalReview review={finalReview} totalDays={totalDays} required={finalReviewRequired} disabled={!editable} onChange={onFinalReviewChange} />}
 
         <section className="border border-[#d8e3e7] bg-white p-4 rounded-lg">
           <div className="flex items-center justify-between gap-3"><div><div className="text-xs font-black uppercase tracking-wide text-slate-500">Результат дня</div><div className="mt-1 text-2xl font-black" style={{ color: evaluation.color }}>{evaluation.title}</div></div><div className="grid h-14 w-14 place-items-center border-4 text-sm font-black rounded-full" style={{ borderColor: evaluation.color, color: evaluation.color }}>{evaluation.score}%</div></div>
@@ -621,18 +718,22 @@ function ReflectionInput({ label, value, disabled, onChange }) {
   return <label className="border border-[#eadfdc] bg-[#fffaf9] p-3 rounded-md"><span className="text-xs font-black text-slate-500">{label}</span><textarea value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className="mt-2 h-20 w-full resize-none bg-transparent text-sm font-semibold leading-6 outline-none" /></label>;
 }
 
-function FinalReview({ review, required, disabled, onChange }) {
-  return <Section title="День 120: итог пути" eyebrow={required ? 'Собери то, что теперь останется с тобой' : 'Финал собран'} icon={<Trophy />} tone="coral"><div className="grid gap-2"><ReflectionInput label="Что изменилось в теле и энергии?" value={review.body} disabled={disabled} onChange={(body) => onChange({ body })} /><ReflectionInput label="Что произошло с работой и профессиональной ценностью?" value={review.career} disabled={disabled} onChange={(career) => onChange({ career })} /><ReflectionInput label="Какими действиями я доказал себе право быть собой?" value={review.identity} disabled={disabled} onChange={(identity) => onChange({ identity })} /><ReflectionInput label="Какой следующий путь я выбираю?" value={review.next} disabled={disabled} onChange={(next) => onChange({ next })} /></div></Section>;
+function FinalReview({ review, totalDays, required, disabled, onChange }) {
+  return <Section title={`День ${totalDays}: итог пути`} eyebrow={required ? 'Собери то, что теперь останется с тобой' : 'Финал собран'} icon={<Trophy />} tone="coral"><div className="grid gap-2"><ReflectionInput label="Что изменилось в теле и энергии?" value={review.body} disabled={disabled} onChange={(body) => onChange({ body })} /><ReflectionInput label="Что произошло с работой и професиональной ценностью?" value={review.career} disabled={disabled} onChange={(career) => onChange({ career })} /><ReflectionInput label="Какими действиями я доказал себе право быть собой?" value={review.identity} disabled={disabled} onChange={(identity) => onChange({ identity })} /><ReflectionInput label="Какой следующий путь я выбираю?" value={review.next} disabled={disabled} onChange={(next) => onChange({ next })} /></div></Section>;
 }
 
-function StatsDashboard({ state, stats, range, onRange, onEditGoal, onAddGoal, onProfileChange }) {
+function StatsDashboard({ user, state, stats, lifeState, lifeCommit, range, totalDays, onRange, onEditGoal, onAddGoal, onProfileChange, onScoringChange }) {
+  const [section, setSection] = useState('metrics');
   const weightRemaining = stats.lastWeight ? Math.max(0, stats.lastWeight - number(state.profile.targetWeight)) : null;
   return (
     <div className="grid gap-4">
-      <section className="flex flex-col gap-3 border border-[#d8e3e7] bg-white p-4 rounded-lg sm:flex-row sm:items-center sm:justify-between"><div><div className="text-sm font-black text-[#0d8fb9]">Статистика</div><h1 className="mt-1 text-2xl font-black">Что меняется по фактам</h1></div><RangeControl value={range} onChange={onRange} /></section>
+      <section className="border border-[#d8e3e7] bg-white p-4 rounded-lg"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="text-sm font-black text-[#0d8fb9]">Статистика</div><h1 className="mt-1 text-2xl font-black">Что меняется по фактам</h1></div>{section === 'metrics' && <RangeControl value={range} totalDays={totalDays} onChange={onRange} />}</div><div className="mt-4 grid grid-cols-3 gap-1 border border-[#d8e3e7] bg-[#f3f6f7] p-1 rounded-md">{[['metrics', 'Показатели'], ['events', 'События'], ['patterns', 'Паттерны']].map(([id, label]) => <button key={id} type="button" onClick={() => setSection(id)} className={`min-h-10 px-2 text-xs font-black rounded-sm ${section === id ? 'bg-[#102a43] text-white' : 'text-slate-500'}`}>{label}</button>)}</div></section>
+      {section === 'events' && lifeState && <EventsPanel user={user} state={lifeState} commit={lifeCommit} />}
+      {section === 'patterns' && <PatternsPanel marathon={state} />}
+      {section === 'metrics' && <>
       <section className="grid grid-cols-2 gap-2 lg:grid-cols-4"><SummaryCard label="До 65 кг" value={weightRemaining === null ? 'Нужен вес' : `${weightRemaining.toFixed(1)} кг`} color="#16a36a" /><SummaryCard label="Энергобаланс" value={`${stats.avgBalance > 0 ? '+' : ''}${stats.avgBalance} ккал`} color="#f06c5f" /><SummaryCard label="Действия" value={stats.allActions.length} color="#0d8fb9" /><SummaryCard label="Задачи" value={`${stats.tasksDone}/${stats.tasksDone + stats.tasksOpen}`} color="#7c63d6" /></section>
 
-      <WeightProjection projection={stats.weightProjection} startDate={state.startDate} />
+      <WeightProjection projection={stats.weightProjection} startDate={state.startDate} totalDays={totalDays} />
 
       <section className="border border-[#d8e3e7] bg-white p-4 rounded-lg"><div className="mb-4 flex items-center justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-black text-[#0d8fb9]"><Target size={18} />Цели</div><h2 className="mt-1 text-xl font-black">Каждая цель считает себя сама</h2></div><button type="button" onClick={onAddGoal} className="icon-command" title="Добавить цель"><Plus size={18} /></button></div><div className="grid gap-3 lg:grid-cols-2">{stats.goalStats.filter((item) => item.goal.active !== false).map((item) => <GoalStat key={item.goal.id} item={item} onEdit={() => onEditGoal(item.goal)} />)}</div></section>
 
@@ -640,19 +741,21 @@ function StatsDashboard({ state, stats, range, onRange, onEditGoal, onAddGoal, o
 
       <CourageStats moments={stats.courage} />
       <ProfilePanel profile={state.profile} onChange={onProfileChange} />
+      <ScoringPanel criteria={state.dayCriteria} thresholds={state.resultThresholds} onChange={onScoringChange} />
+      </>}
     </div>
   );
 }
 
-function WeightProjection({ projection, startDate }) {
+function WeightProjection({ projection, startDate, totalDays }) {
   if (!projection) return <section className="border border-[#d8e3e7] bg-white p-4 rounded-lg"><div className="flex items-center gap-2 font-black"><Scale size={18} className="text-[#16a36a]" />Курс на 65 кг</div><p className="mt-2 text-sm font-semibold text-slate-500">Введи и сохрани первый вес — здесь появятся три сценария и фактический прогноз.</p></section>;
-  const finishLabel = (finishDay) => finishDay <= TOTAL_DAYS ? `день ${finishDay} · ${formatShortDate(addDays(startDate, finishDay - 1))}` : `после марафона · день ${finishDay}`;
+  const finishLabel = (finishDay) => finishDay <= totalDays ? `день ${finishDay} · ${formatShortDate(addDays(startDate, finishDay - 1))}` : `после марафона · день ${finishDay}`;
   const trend = projection.remaining === 0 ? 'Цель достигнута' : projection.trendFinishDay ? finishLabel(projection.trendFinishDay) : 'Нужно минимум две отметки веса';
-  return <section className="border border-[#b8e0cb] bg-[#f4fcf8] p-4 rounded-lg"><div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-black text-[#16865f]"><Scale size={18} />Курс на {projection.target} кг</div><h2 className="mt-1 text-xl font-black">По текущей динамике: {trend}</h2></div><div className="text-sm font-bold text-slate-500">Чтобы успеть за 120 дней: <strong className="text-[#102a43]">≈ {projection.requiredDailyDeficit} ккал/день</strong></div></div><div className="mt-4 grid gap-2 sm:grid-cols-3">{projection.scenarios.map((scenario) => <div key={scenario.id} className="border border-white bg-white p-3 shadow-sm rounded-md"><div className="h-1 w-10 rounded-sm" style={{ backgroundColor: scenario.color }} /><div className="mt-2 flex items-baseline justify-between gap-2"><strong className="text-sm font-black">{scenario.title}</strong><span className="text-xs font-black" style={{ color: scenario.color }}>−{scenario.deficit}</span></div><div className="mt-2 text-lg font-black">{scenario.days} дней</div><div className={`mt-1 text-xs font-bold ${scenario.withinMarathon ? 'text-[#16865f]' : 'text-[#a7473e]'}`}>{finishLabel(scenario.finishDay)}</div></div>)}</div></section>;
+  return <section className="border border-[#b8e0cb] bg-[#f4fcf8] p-4 rounded-lg"><div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><div className="flex items-center gap-2 text-sm font-black text-[#16865f]"><Scale size={18} />Курс на {projection.target} кг</div><h2 className="mt-1 text-xl font-black">По текущей динамике: {trend}</h2></div><div className="text-sm font-bold text-slate-500">Чтобы успеть за {totalDays} дней: <strong className="text-[#102a43]">≈ {projection.requiredDailyDeficit} ккал/день</strong></div></div><div className="mt-4 grid gap-2 sm:grid-cols-3">{projection.scenarios.map((scenario) => <div key={scenario.id} className="border border-white bg-white p-3 shadow-sm rounded-md"><div className="h-1 w-10 rounded-sm" style={{ backgroundColor: scenario.color }} /><div className="mt-2 flex items-baseline justify-between gap-2"><strong className="text-sm font-black">{scenario.title}</strong><span className="text-xs font-black" style={{ color: scenario.color }}>−{scenario.deficit}</span></div><div className="mt-2 text-lg font-black">{scenario.days} дней</div><div className={`mt-1 text-xs font-bold ${scenario.withinMarathon ? 'text-[#16865f]' : 'text-[#a7473e]'}`}>{finishLabel(scenario.finishDay)}</div></div>)}</div></section>;
 }
 
-function RangeControl({ value, onChange }) {
-  return <div className="grid grid-cols-3 gap-1 border border-[#d8e3e7] bg-[#f3f6f7] p-1 rounded-md">{[['7', '7 дней'], ['30', '30 дней'], ['all', '120 дней']].map(([id, label]) => <button key={id} type="button" onClick={() => onChange(id)} className={`min-h-[38px] px-3 text-xs font-black rounded-sm ${value === id ? 'bg-[#102a43] text-white' : 'text-slate-500'}`}>{label}</button>)}</div>;
+function RangeControl({ value, totalDays, onChange }) {
+  return <div className="grid grid-cols-3 gap-1 border border-[#d8e3e7] bg-[#f3f6f7] p-1 rounded-md">{[['7', '7 дней'], ['30', '30 дней'], ['all', `${totalDays} дней`]].map(([id, label]) => <button key={id} type="button" onClick={() => onChange(id)} className={`min-h-[38px] px-3 text-xs font-black rounded-sm ${value === id ? 'bg-[#102a43] text-white' : 'text-slate-500'}`}>{label}</button>)}</div>;
 }
 
 function SummaryCard({ label, value, color }) {
@@ -706,6 +809,12 @@ function ProfilePanel({ profile, onChange }) {
   return <section className="border border-[#d8e3e7] bg-white rounded-lg"><button type="button" onClick={() => setOpen((value) => !value)} className="flex min-h-[54px] w-full items-center justify-between px-4 text-left"><span className="flex items-center gap-2 font-black"><Settings2 size={18} className="text-[#0d7ea5]" />Параметры расчёта тела</span><ChevronDown size={18} className={`transition ${open ? 'rotate-180' : ''}`} /></button>{open && <div className="grid gap-2 border-t border-[#e1e9ec] p-4 sm:grid-cols-4"><MiniNumber label="Возраст" value={profile.age} onChange={(age) => onChange({ age })} /><MiniNumber label="Рост, см" value={profile.height} onChange={(height) => onChange({ height })} /><MiniNumber label="Цель, кг" value={profile.targetWeight} step="0.1" onChange={(targetWeight) => onChange({ targetWeight })} /><label className="field-box"><span>Пол</span><select value={profile.sex} onChange={(event) => onChange({ sex: event.target.value })} className="mt-2 w-full bg-transparent font-black outline-none"><option value="male">Мужской</option><option value="female">Женский</option></select></label></div>}</section>;
 }
 
+function ScoringPanel({ criteria, thresholds, onChange }) {
+  const [open, setOpen] = useState(false);
+  const updateCriterion = (id, patch) => onChange({ dayCriteria: criteria.map((item) => item.id === id ? { ...item, ...patch } : item) });
+  return <section className="border border-[#d8e3e7] bg-white rounded-lg"><button type="button" onClick={() => setOpen((value) => !value)} className="flex min-h-[54px] w-full items-center justify-between px-4 text-left"><span className="flex items-center gap-2 font-black"><Settings2 size={18} className="text-[#0d7ea5]" />Оценка результа дня</span><ChevronDown size={18} className={`transition ${open ? 'rotate-180' : ''}`} /></button>{open && <div className="grid gap-3 border-t border-[#e1e9ec] p-4"><p className="text-sm font-semibold leading-6 text-slate-500">Обязательность определяет, нужно ли заполнить поле для закрытия. Вес определяет вклад в итоговый цвет.</p>{criteria.map((item) => <div key={item.id} className="grid gap-2 border border-[#dce6e9] bg-[#f8fbfb] p-3 rounded-md sm:grid-cols-[1fr_100px_90px_auto]"><label className="flex items-center gap-2 text-sm font-black"><input type="checkbox" checked={item.active !== false} onChange={(event) => updateCriterion(item.id, { active: event.target.checked })} className="h-5 w-5 accent-[#0d8fb9]" />{item.label}</label><label className="text-xs font-bold text-slate-500">Норма<input type="number" value={item.target} onChange={(event) => updateCriterion(item.id, { target: event.target.value })} className="field-control mt-1 min-h-10 py-1" /></label><label className="text-xs font-bold text-slate-500">Вес<input type="number" min="0" max="100" value={item.weight} onChange={(event) => updateCriterion(item.id, { weight: event.target.value })} className="field-control mt-1 min-h-10 py-1" /></label><label className="flex items-center gap-2 self-end pb-2 text-xs font-bold text-slate-500"><input type="checkbox" checked={item.required} onChange={(event) => updateCriterion(item.id, { required: event.target.checked })} />обяз.</label></div>)}<div className="grid grid-cols-3 gap-2"><MiniNumber label="Жёлтый от, %" value={thresholds.steady} onChange={(steady) => onChange({ resultThresholds: { ...thresholds, steady } })} /><MiniNumber label="Зелёный от, %" value={thresholds.strong} onChange={(strong) => onChange({ resultThresholds: { ...thresholds, strong } })} /><MiniNumber label="Прорыв от, %" value={thresholds.expansion} onChange={(expansion) => onChange({ resultThresholds: { ...thresholds, expansion } })} /></div></div>}</section>;
+}
+
 function MiniNumber({ label, value, onChange, step = '1' }) {
   return <label className="field-box"><span>{label}</span><input type="number" min="0" step={step} value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 w-full bg-transparent font-black outline-none" /></label>;
 }
@@ -721,9 +830,9 @@ function GoalForm({ draft, setDraft, onSave, onArchive }) {
   return <div className="mt-4 grid gap-3 border-t border-[#e1e9ec] pt-4"><label className="form-label">Название<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Например: две тренировки" className="field-control mt-2" /></label><label className="form-label">Зачем эта цель<textarea value={draft.description || ''} onChange={(event) => setDraft({ ...draft, description: event.target.value })} className="field-control mt-2 h-20 resize-none" /></label><div className="grid gap-3 sm:grid-cols-2"><label className="form-label">Тип<select value={draft.type} disabled={draft.locked} onChange={(event) => setDraft({ ...draft, type: event.target.value })} className="field-control mt-2">{GOAL_TYPES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="form-label">Период<select value={draft.cadence} disabled={draft.locked} onChange={(event) => setDraft({ ...draft, cadence: event.target.value })} className="field-control mt-2">{GOAL_CADENCES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label><label className="form-label">Цель<input type="number" min="1" value={draft.target} disabled={draft.locked} onChange={(event) => setDraft({ ...draft, target: event.target.value })} className="field-control mt-2" /></label><label className="form-label">Единица<input value={draft.unit} disabled={draft.locked} onChange={(event) => setDraft({ ...draft, unit: event.target.value })} className="field-control mt-2" /></label></div><div><div className="form-label">Цвет</div><div className="mt-2 flex flex-wrap gap-2">{GOAL_COLORS.map((color) => <button key={color} type="button" onClick={() => setDraft({ ...draft, color })} className={`h-9 w-9 rounded-md ${draft.color === color ? 'ring-2 ring-[#102a43] ring-offset-2' : ''}`} style={{ backgroundColor: color }} title={color} />)}</div></div><div className="flex gap-2"><button type="button" disabled={!draft.name.trim()} onClick={() => onSave(draft)} className="min-h-[48px] flex-1 bg-[#16a36a] font-black text-white disabled:bg-slate-300 rounded-md">Сохранить цель</button>{draft.id && !draft.locked && <button type="button" onClick={() => onArchive(draft.id)} className="icon-command danger" title="Убрать цель"><Trash2 /></button>}</div></div>;
 }
 
-function TaskModal({ goals, currentDay, onSave, onClose }) {
+function TaskModal({ goals, currentDay, totalDays, onSave, onClose }) {
   const [draft, setDraft] = useState({ title: '', goalId: goals.find((goal) => goal.active !== false)?.id || '', dueDay: currentDay });
-  return <ModalShell title="Новая задача" onClose={onClose}><div className="grid gap-3"><label className="form-label">Что сделать<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} className="field-control mt-2" autoFocus /></label><label className="form-label">Связать с целью<select value={draft.goalId} onChange={(event) => setDraft({ ...draft, goalId: event.target.value })} className="field-control mt-2"><option value="">Без цели</option>{goals.filter((goal) => goal.active !== false).map((goal) => <option key={goal.id} value={goal.id}>{goal.name}</option>)}</select></label><label className="form-label">День выполнения<input type="number" min={currentDay} max={TOTAL_DAYS} value={draft.dueDay} onChange={(event) => setDraft({ ...draft, dueDay: number(event.target.value) })} className="field-control mt-2" /></label><button type="button" disabled={!draft.title.trim()} onClick={() => onSave(draft)} className="min-h-[48px] bg-[#16a36a] font-black text-white disabled:bg-slate-300 rounded-md">Добавить задачу</button></div></ModalShell>;
+  return <ModalShell title="Новая задача" onClose={onClose}><div className="grid gap-3"><label className="form-label">Что сделать<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} className="field-control mt-2" autoFocus /></label><label className="form-label">Связать с целью<select value={draft.goalId} onChange={(event) => setDraft({ ...draft, goalId: event.target.value })} className="field-control mt-2"><option value="">Без цели</option>{goals.filter((goal) => goal.active !== false).map((goal) => <option key={goal.id} value={goal.id}>{goal.name}</option>)}</select></label><label className="form-label">День выполнения<input type="number" min={currentDay} max={totalDays} value={draft.dueDay} onChange={(event) => setDraft({ ...draft, dueDay: number(event.target.value) })} className="field-control mt-2" /></label><button type="button" disabled={!draft.title.trim()} onClick={() => onSave(draft)} className="min-h-[48px] bg-[#16a36a] font-black text-white disabled:bg-slate-300 rounded-md">Добавить задачу</button></div></ModalShell>;
 }
 
 function ModalShell({ title, children, onClose }) {
@@ -744,12 +853,12 @@ function SimpleConfirm({ title, text, confirm, disabled = false, onConfirm, onCl
   return <ModalShell title={title} onClose={onClose}><p className="font-semibold leading-7 text-slate-600">{text}</p><div className="mt-5 grid grid-cols-2 gap-2"><button type="button" onClick={onClose} className="min-h-[48px] border border-[#d8e3e7] bg-white font-black text-slate-600 rounded-md">Отмена</button><button type="button" disabled={disabled} onClick={onConfirm} className="min-h-[48px] bg-[#16a36a] font-black text-white disabled:bg-slate-300 rounded-md">{confirm}</button></div></ModalShell>;
 }
 
-function ExportModal({ data, onClose }) {
+function ExportModal({ data, totalDays, onClose }) {
   const [mode, setMode] = useState('markdown');
   const [copied, setCopied] = useState(false);
   const value = mode === 'markdown' ? data.markdown : data.json;
   const copy = async () => { await navigator.clipboard.writeText(value); setCopied(true); window.setTimeout(() => setCopied(false), 1400); };
-  const download = () => { const blob = new Blob([value], { type: mode === 'markdown' ? 'text/markdown;charset=utf-8' : 'application/json;charset=utf-8' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = mode === 'markdown' ? 'marathon-120.md' : 'marathon-120.json'; link.click(); URL.revokeObjectURL(url); };
+  const download = () => { const blob = new Blob([value], { type: mode === 'markdown' ? 'text/markdown;charset=utf-8' : 'application/json;charset=utf-8' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = mode === 'markdown' ? `marathon-${totalDays}.md` : `marathon-${totalDays}.json`; link.click(); URL.revokeObjectURL(url); };
   return <ModalShell title="Экспорт пути" onClose={onClose}><div className="mb-3 flex flex-wrap gap-2"><button type="button" onClick={() => setMode('markdown')} className={`px-3 py-2 text-sm font-black rounded-md ${mode === 'markdown' ? 'bg-[#102a43] text-white' : 'border border-[#d8e3e7]'}`}>Текст</button><button type="button" onClick={() => setMode('json')} className={`px-3 py-2 text-sm font-black rounded-md ${mode === 'json' ? 'bg-[#102a43] text-white' : 'border border-[#d8e3e7]'}`}>Данные</button><button type="button" onClick={copy} className="px-3 py-2 text-sm font-black text-[#0d7ea5]">{copied ? 'Скопировано' : 'Скопировать'}</button><button type="button" onClick={download} className="px-3 py-2 text-sm font-black text-[#16865f]">Скачать</button></div><textarea readOnly value={value} className="h-[55vh] w-full resize-none border border-[#d8e3e7] bg-[#f7f9fa] p-3 font-mono text-xs leading-5 outline-none rounded-md" /></ModalShell>;
 }
 

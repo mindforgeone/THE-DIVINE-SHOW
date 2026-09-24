@@ -10,8 +10,9 @@ export const LEVELS = [
   { id: 'boss', label: 'Босс', points: 12, color: '#5344a8' },
 ];
 export const ENERGY_STATUSES = [
-  { id: 'hanging', label: 'Висит' },
+  { id: 'hanging', label: 'Backlog' },
   { id: 'planned', label: 'Запланировано' },
+  { id: 'today', label: 'Сегодня' },
   { id: 'working', label: 'В работе' },
   { id: 'done', label: 'Готово' },
 ];

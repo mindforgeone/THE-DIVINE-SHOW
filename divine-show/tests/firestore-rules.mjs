@@ -30,6 +30,7 @@ if (process.argv.includes('--deployed')) {
 }
 
 const owner = { uid: 'rules-test-owner', email: 'rules-owner@example.test' };
+const adminUid = '5CMckLFqiCPoPCBQLz1YqBkgVXs1';
 const resetStorage = await resolveAccountStorage(owner, createHash('sha256').update(owner.email).digest('hex'));
 const trackerIds = [...new Set([...LEGACY_DOCUMENT_IDS, CLOUD_DOCUMENT_ID, resetStorage.documentId])];
 const cases = [];
@@ -42,14 +43,15 @@ const add = (label, path, method, auth, expectation) => cases.push({
   },
 });
 
-for (const path of [...trackerIds.map((id) => `users/${owner.uid}/trackers/${id}`), `divine_data/${owner.uid}`]) {
+for (const path of [`users/${owner.uid}`, ...trackerIds.map((id) => `users/${owner.uid}/trackers/${id}`), `users/${owner.uid}/trackers/steps-v1`, `users/${owner.uid}/trackers/life-v1`, `users/${owner.uid}/marathons/example`, `users/${owner.uid}/private/example`, `divine_data/${owner.uid}`]) {
   for (const method of ['get', 'create', 'update', 'delete']) {
     add(`owner ${method} ${path}`, path, method, { uid: owner.uid }, 'ALLOW');
+    add(`admin ${method} ${path}`, path, method, { uid: adminUid }, 'ALLOW');
     add(`other account ${method} ${path}`, path, method, { uid: 'rules-test-other' }, 'DENY');
     add(`signed out ${method} ${path}`, path, method, null, 'DENY');
   }
 }
-for (const path of [`users/${owner.uid}`, `users/${owner.uid}/private/example`, `users/${owner.uid}/trackers/example/private/example`, `unrelated/${owner.uid}`]) {
+for (const path of [`unrelated/${owner.uid}`]) {
   for (const method of ['get', 'create', 'update', 'delete']) {
     add(`unmatched path ${method} ${path}`, path, method, { uid: owner.uid }, 'DENY');
   }

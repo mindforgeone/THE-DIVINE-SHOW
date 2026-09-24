@@ -5,7 +5,7 @@ import {
   TOTAL_DAYS, createInitialState, evaluateDay, finalizePastDays, calculateStats,
   buildExport, updateDayDraft, mergeStates, saveCachedState, loadCachedState, visibleGoalsForDay,
 } from '../src/marathon/model.js';
-import { START_COMMITMENTS, acceptCommitments } from '../src/marathon/commitments.js';
+import { START_COMMITMENTS, acceptCommitments, commitmentsForDuration } from '../src/marathon/commitments.js';
 import { resolveAccountStorage } from '../src/marathon/accountStorage.js';
 
 const START = '2026-09-06';
@@ -29,6 +29,8 @@ test('all commitments and a personal purpose must be explicitly accepted', () =>
   assert.equal(accepted.purpose, 'Act freely and stay healthy');
   assert.equal(accepted.acceptedAt, MORNING);
   assert.ok(accepted.items.every((item) => item.accepted));
+  assert.match(commitmentsForDuration(30)[0].title, /30/);
+  assert.match(commitmentsForDuration(90)[4].metric, /90/);
 });
 
 test('reset isolates only the requested account and preserves other account paths', async () => {
@@ -117,12 +119,25 @@ test('partial entries survive, appear in stats/export, and missing activity is n
 
 test('empty, invalid or unfinished entries never silently become a green day', () => {
   const state = makeState();
-  for (const patch of [{ steps: '' }, { activeCalories: '-1' }, { steps: 'not-a-number' }, { evidence: '' }, { actions: [{ id: 'unfinished', text: '' }] }]) {
+  for (const patch of [{ steps: '' }, { activeCalories: '-1' }, { steps: 'not-a-number' }, { actions: [{ id: 'unfinished', text: '' }] }]) {
     state.days[0] = completeDay(state, 0, patch);
     assert.equal(finalizePastDays(state, '2026-09-07', NEXT).days[0].result, null);
   }
   state.days[0] = completeDay(state, 0, { steps: '0', activeCalories: '0' });
-  assert.equal(finalizePastDays(state, '2026-09-07', NEXT).days[0].result, 'strong');
+  assert.equal(finalizePastDays(state, '2026-09-07', NEXT).days[0].result, 'steady');
+  state.days[0] = completeDay(state, 0, { evidence: '' });
+  assert.notEqual(finalizePastDays(state, '2026-09-07', NEXT).days[0].result, null, 'Optional reflection must not block the day');
+});
+
+test('30, 90 and 120 day journeys create matching calendars and projections', () => {
+  for (const duration of [30, 90, 120]) {
+    const state = createInitialState(START, MORNING, null, duration);
+    assert.equal(state.durationDays, duration);
+    assert.equal(state.days.length, duration);
+    assert.equal(state.days.at(-1).day, duration);
+    assert.equal(state.weeklyReviews.length, Math.ceil(duration / 7));
+    assert.equal(calculateStats(state, 0, 'all').elapsed.length, 1);
+  }
 });
 
 test('missing weekly reflection does not erase an earned daily result; day 120 also settles', () => {

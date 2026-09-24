@@ -40,9 +40,13 @@ const firestoreStub = `
 const cloud = window.__cloudTest;
 const subscribers = new Set();
 const isSteps = (path) => path.endsWith('/trackers/steps-v1');
-const snapshot = (path) => { const data = isSteps(path) ? cloud.stepsDocument : cloud.document; return { exists: () => Boolean(data), data: () => data, metadata: { fromCache: false, hasPendingWrites: false } }; };
+const isLife = (path) => path.endsWith('/trackers/life-v1');
+const isHistory = (path) => path.endsWith('/trackers/marathon-history-v1');
+const isCurrent = (path) => path.endsWith('/trackers/marathon-current-v11');
+const dataFor = (path) => isSteps(path) ? cloud.stepsDocument : isLife(path) ? cloud.lifeDocument : isHistory(path) ? cloud.historyDocument : cloud.document;
+const snapshot = (path) => { const data = dataFor(path); return { exists: () => Boolean(data), data: () => data, metadata: { fromCache: false, hasPendingWrites: false } }; };
 cloud.emit = () => { for (const item of subscribers) item.callback(snapshot(item.path)); };
-cloud.fail = (code) => { for (const item of [...subscribers]) if (!isSteps(item.path)) item.onError({ code }); };
+cloud.fail = (code) => { for (const item of [...subscribers]) if (isCurrent(item.path)) item.onError({ code }); };
 export const doc = (_db, ...parts) => parts.join('/');
 export const getFirestore = () => ({});
 export const serverTimestamp = () => new Date().toISOString();
@@ -54,8 +58,8 @@ export const onSnapshot = (path, _options, callback, onError) => {
 };
 export const runTransaction = async (_db, callback) => {
   const result = await callback({
-    get: async (path) => { if (!isSteps(path)) { cloud.transactions++; if (cloud.holdTransaction) await new Promise((resolve) => { cloud.release = resolve; }); } return snapshot(path); },
-    set: (path, value) => { if (isSteps(path)) cloud.stepsDocument = { ...cloud.stepsDocument, ...value }; else cloud.document = { ...cloud.document, ...value }; cloud.writes++; },
+    get: async (path) => { if (isCurrent(path)) { cloud.transactions++; if (cloud.holdTransaction) await new Promise((resolve) => { cloud.release = resolve; }); } return snapshot(path); },
+    set: (path, value) => { if (isSteps(path)) cloud.stepsDocument = { ...cloud.stepsDocument, ...value }; else if (isLife(path)) cloud.lifeDocument = { ...cloud.lifeDocument, ...value }; else if (isHistory(path)) cloud.historyDocument = { ...cloud.historyDocument, ...value }; else cloud.document = { ...cloud.document, ...value }; cloud.writes++; },
     delete: () => { throw new Error('Existing history must never be reset'); },
   });
   cloud.emit();
@@ -66,7 +70,7 @@ export const runTransaction = async (_db, callback) => {
 async function setup({ realAuth = false, blockCacheCleanup = false } = {}) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, timezoneId: 'Europe/Moscow' });
   await context.addInitScript(({ state, blockCacheCleanup }) => {
-    window.__cloudTest = { document: { state, resetGeneration: '2026-09-06' }, transactions: 0, subscriptions: 0, writes: 0, holdSnapshot: false, holdTransaction: false };
+    window.__cloudTest = { document: { state, resetGeneration: '2026-09-24-life-platform-v1' }, lifeDocument: null, historyDocument: null, stepsDocument: null, transactions: 0, subscriptions: 0, writes: 0, holdSnapshot: false, holdTransaction: false };
     if (blockCacheCleanup) {
       const remove = Storage.prototype.removeItem;
       Storage.prototype.removeItem = function (key) {
@@ -81,8 +85,13 @@ async function setup({ realAuth = false, blockCacheCleanup = false } = {}) {
     const body = (await response.text()).replace(/const REQUESTED_ACCOUNT_HASH = ["'][a-f0-9]+["']/, `const REQUESTED_ACCOUNT_HASH = '${fingerprint}'`);
     return route.fulfill({ response, body });
   });
+  await context.route('**/src/auth/roles.js*', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace(/export const ADMIN_UID = ["'][^"']+["']/, `export const ADMIN_UID = '${user.uid}'`);
+    return route.fulfill({ response, body });
+  });
   if (!realAuth) {
-    await context.route('**/src/firebase.js*', (route) => route.fulfill({ contentType: 'text/javascript', body: 'export const auth=window.__testAuth={currentUser:null}; export const db={}; export const firebaseConfigured=true; export const googleProvider={};' }));
+    await context.route('**/src/firebase.js*', (route) => route.fulfill({ contentType: 'text/javascript', body: 'export const auth=window.__testAuth={currentUser:null}; export const db={}; export const storage={}; export const firebaseConfigured=true; export const googleProvider={};' }));
     await context.route(/\/firebase_auth\.js(\?|$)/, (route) => route.fulfill({ contentType: 'text/javascript', body: authStub }));
   }
   await context.route(/\/firebase_firestore\.js(\?|$)/, (route) => route.fulfill({ contentType: 'text/javascript', body: firestoreStub }));
@@ -132,9 +141,9 @@ try {
   await focusStorm(page);
   assert.equal(await page.evaluate(() => window.__cloudTest.transactions), 1, 'Phone focus and same-UID notifications must not restart initialization');
   await page.evaluate(() => { window.__cloudTest.holdTransaction = false; window.__cloudTest.release(); });
-  await page.waitForFunction(() => window.__cloudTest.subscriptions === 1);
+  await page.waitForFunction(() => window.__cloudTest.subscriptions === 2);
   await focusStorm(page);
-  assert.equal(await page.evaluate(() => window.__cloudTest.subscriptions), 1, 'Keep the pending Firebase listener');
+  assert.equal(await page.evaluate(() => window.__cloudTest.subscriptions), 2, 'Keep the pending Firebase listeners');
   await page.clock.fastForward(13000);
   await page.getByRole('button', { name: 'Повторить загрузку', exact: true }).waitFor();
   await page.evaluate(() => window.__cloudTest.fail('permission-denied'));

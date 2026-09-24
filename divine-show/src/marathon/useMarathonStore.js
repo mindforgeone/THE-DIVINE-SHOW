@@ -3,7 +3,7 @@ import { doc, onSnapshot, runTransaction, serverTimestamp } from 'firebase/fires
 import { db } from '../firebase';
 import { historyErrorMessage } from '../auth/errors';
 import { clearRequestedHistoryCache, resolveAccountStorage } from './accountStorage';
-import { createInitialState, finalizePastDays, loadCachedState, mergeStates, saveCachedState, todayKey } from './model';
+import { buildMarathonSummary, clearCachedState, createInitialState, finalizePastDays, loadCachedState, mergeStates, saveCachedState, todayKey } from './model';
 
 export function useMarathonStore(user) {
   const [state, setState] = useState(null);
@@ -12,6 +12,7 @@ export function useMarathonStore(user) {
   const [syncState, setSyncState] = useState('loading');
   const [error, setError] = useState('');
   const [starting, setStarting] = useState(false);
+  const [history, setHistory] = useState([]);
   const [currentDate, setCurrentDate] = useState(todayKey);
   const sessionRef = useRef(null);
   const uid = user?.uid;
@@ -19,12 +20,13 @@ export function useMarathonStore(user) {
 
   useEffect(() => {
     if (!uid || !db) return undefined;
-    const session = { alive: true, uid, state: null, storage: null, writable: false, saving: false, connecting: false, listening: false, resetChecked: false, retryAt: 0, localSaved: true, timer: null, remoteJson: '', unsubscribe: null };
+    const session = { alive: true, uid, state: null, storage: null, writable: false, saving: false, connecting: false, listening: false, resetChecked: false, retryAt: 0, localSaved: true, timer: null, remoteJson: '', unsubscribe: null, unsubscribeHistory: null };
     sessionRef.current = session;
 
     const publish = (next) => {
       if (!session.alive) return;
       session.state = next;
+      if (!next) clearCachedState(uid, session.storage.cacheNamespace);
       session.localSaved = !next || saveCachedState(uid, next, session.storage.cacheNamespace);
       setOwnerUid(uid);
       setState(next);
@@ -48,7 +50,20 @@ export function useMarathonStore(user) {
         const written = await runTransaction(db, async (transaction) => {
           const snapshot = await transaction.get(documentRef);
           const next = finalizePastDays(mergeStates(snapshot.exists() ? snapshot.data().state : null, payload));
+          let historyRef;
+          let historySnapshot;
+          if (next?.completedAt) {
+            historyRef = doc(db, 'users', uid, 'trackers', 'marathon-history-v1');
+            historySnapshot = await transaction.get(historyRef);
+          }
           transaction.set(documentRef, { state: next, updatedAt: serverTimestamp() }, { merge: true });
+          if (next?.completedAt) {
+            const summary = next.completionSummary || buildMarathonSummary(next);
+            const previousItems = historySnapshot.exists() && Array.isArray(historySnapshot.data().items) ? historySnapshot.data().items : [];
+            const items = [summary, ...previousItems.filter((item) => item.journeyId !== next.journeyId)].sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)));
+            transaction.set(doc(db, 'users', uid, 'marathons', next.journeyId), { state: next, summary, updatedAt: serverTimestamp() });
+            transaction.set(historyRef, { items, updatedAt: serverTimestamp() });
+          }
           return next;
         });
         if (!session.alive) return;
@@ -78,9 +93,9 @@ export function useMarathonStore(user) {
       schedule();
     };
 
-    session.start = async (commitments) => {
+    session.start = async (commitments, durationDays) => {
       if (!session.alive || !session.writable || session.state?.contractAcceptedAt) return false;
-      const next = createInitialState(todayKey(), commitments.acceptedAt, commitments);
+      const next = createInitialState(todayKey(), commitments.acceptedAt, commitments, durationDays);
       const documentRef = doc(db, 'users', uid, 'trackers', session.storage.documentId);
       const saved = await runTransaction(db, async (transaction) => {
         const snapshot = await transaction.get(documentRef);
@@ -93,6 +108,29 @@ export function useMarathonStore(user) {
       session.remoteJson = JSON.stringify(saved);
       setError('');
       publish(saved);
+      setSyncState('synced');
+      return true;
+    };
+
+    session.startNext = async () => {
+      if (!session.alive || !session.writable || !session.state?.completedAt) return false;
+      const documentRef = doc(db, 'users', uid, 'trackers', session.storage.documentId);
+      await runTransaction(db, async (transaction) => {
+        const snapshot = await transaction.get(documentRef);
+        const existing = snapshot.exists() ? snapshot.data().state : null;
+        if (!existing?.completedAt) throw new Error('journey-not-complete');
+        const summary = existing.completionSummary || buildMarathonSummary(existing);
+        const historyRef = doc(db, 'users', uid, 'trackers', 'marathon-history-v1');
+        const historySnapshot = await transaction.get(historyRef);
+        const previousItems = historySnapshot.exists() && Array.isArray(historySnapshot.data().items) ? historySnapshot.data().items : [];
+        const items = [summary, ...previousItems.filter((item) => item.journeyId !== existing.journeyId)].sort((a, b) => String(b.completedAt).localeCompare(String(a.completedAt)));
+        transaction.set(doc(db, 'users', uid, 'marathons', existing.journeyId), { state: existing, summary, updatedAt: serverTimestamp() });
+        transaction.set(historyRef, { items, updatedAt: serverTimestamp() });
+        transaction.set(documentRef, { state: null, resetGeneration: session.storage.generation, updatedAt: serverTimestamp() });
+      });
+      if (!session.alive) return false;
+      session.remoteJson = 'null';
+      publish(null);
       setSyncState('synced');
       return true;
     };
@@ -138,6 +176,11 @@ export function useMarathonStore(user) {
           session.resetChecked = true;
           clearRequestedHistoryCache(uid, session.storage);
         }
+        session.unsubscribeHistory?.();
+        session.unsubscribeHistory = onSnapshot(doc(db, 'users', uid, 'trackers', 'marathon-history-v1'), { includeMetadataChanges: true }, (snapshot) => {
+          if (!session.alive) return;
+          setHistory(snapshot.exists() && Array.isArray(snapshot.data().items) ? snapshot.data().items : []);
+        }, connectionFailed);
         session.listening = true;
         session.unsubscribe = onSnapshot(documentRef, { includeMetadataChanges: true }, (snapshot) => {
           if (!session.alive) return;
@@ -183,6 +226,7 @@ export function useMarathonStore(user) {
       window.clearInterval(interval);
       window.clearTimeout(session.timer);
       session.unsubscribe?.();
+      session.unsubscribeHistory?.();
       window.removeEventListener('online', refresh);
       window.removeEventListener('focus', refresh);
       window.removeEventListener('pagehide', flush);
@@ -190,11 +234,11 @@ export function useMarathonStore(user) {
     };
   }, [uid, email]);
 
-  const start = async (commitments) => {
+  const start = async (commitments, durationDays) => {
     if (starting || !commitments) return false;
     setStarting(true);
     try {
-      const started = await sessionRef.current?.start(commitments);
+      const started = await sessionRef.current?.start(commitments, durationDays);
       if (!started) setError('Перед стартом дождись подключения к облаку.');
       return started;
     } catch {
@@ -206,5 +250,5 @@ export function useMarathonStore(user) {
   };
 
   const belongsToUser = user?.uid === ownerUid;
-  return { state: belongsToUser ? state : null, ready: ready && belongsToUser, syncState, error, starting, currentDate, start, commit: (recipe) => sessionRef.current?.commit(recipe), retry: () => sessionRef.current?.retry() };
+  return { state: belongsToUser ? state : null, history: belongsToUser ? history : [], ready: ready && belongsToUser, syncState, error, starting, currentDate, start, startNext: () => sessionRef.current?.startNext(), commit: (recipe) => sessionRef.current?.commit(recipe), retry: () => sessionRef.current?.retry() };
 }

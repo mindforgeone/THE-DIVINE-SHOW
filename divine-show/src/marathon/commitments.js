@@ -2,7 +2,7 @@ export const COMMITMENT_VERSION = 1;
 
 export const START_COMMITMENTS = [
   {
-    id: 'alcohol', title: '120 дней без алкоголя', metric: '0 порций · каждый день',
+    id: 'alcohol', title: 'Без алкоголя весь марафон', metric: '0 порций · каждый день',
     text: 'Я выбираю не пить алкоголь в течение марафона, включая праздники и встречи. Заранее выбираю безалкогольную альтернативу.',
   },
   {
@@ -18,7 +18,7 @@ export const START_COMMITMENTS = [
     text: 'Я делаю хотя бы один посильный шаг в работе, навыках, физической форме или самовыражении. Записываю, что именно сделал. Размер шага можно уменьшить, его смысл должен остаться.',
   },
   {
-    id: 'honesty', title: 'Рост, который можно увидеть', metric: '120 дней фактов · итог каждые 7 дней',
+    id: 'honesty', title: 'Рост, который можно увидеть', metric: 'Факты каждый день · итог каждые 7 дней',
     text: 'Я честно отмечаю и выполненное, и отклонения. Каждые 7 дней смотрю на факты и выбираю следующий шаг. Если отклонился, возвращаюсь к плану со следующего действия.',
   },
   {
@@ -27,7 +27,17 @@ export const START_COMMITMENTS = [
   },
 ];
 
-export function acceptCommitments(checked, purpose, acceptedAt) {
-  if (!START_COMMITMENTS.every((item) => checked?.[item.id] === true) || purpose?.trim().length < 10 || !purpose?.trim()) return null;
-  return { version: COMMITMENT_VERSION, acceptedAt, purpose: purpose.trim(), items: START_COMMITMENTS.map((item) => ({ ...item, accepted: true })) };
+export function commitmentsForDuration(durationDays = 120) {
+  const duration = [30, 90, 120].includes(Number(durationDays)) ? Number(durationDays) : 120;
+  return START_COMMITMENTS.map((item) => item.id === 'alcohol'
+    ? { ...item, title: `${duration} дней без алкоголя` }
+    : item.id === 'honesty'
+      ? { ...item, metric: `${duration} дней фактов · итог каждые 7 дней` }
+      : item);
+}
+
+export function acceptCommitments(checked, purpose, acceptedAt, durationDays = 120) {
+  const items = commitmentsForDuration(durationDays);
+  if (!items.every((item) => checked?.[item.id] === true) || purpose?.trim().length < 10 || !purpose?.trim()) return null;
+  return { version: COMMITMENT_VERSION, acceptedAt, purpose: purpose.trim(), items: items.map((item) => ({ ...item, accepted: true })) };
 }

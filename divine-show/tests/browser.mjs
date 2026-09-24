@@ -12,7 +12,7 @@ const output = process.env.MARATHON_TEST_OUTPUT || join(import.meta.dirname, '..
 await mkdir(output, { recursive: true });
 const owner = { uid: 'test-owner', email: 'owner@example.test' };
 const oldPath = 'users/test-owner/trackers/marathon120-v9';
-const newPath = 'users/test-owner/trackers/marathon120-20260906';
+const newPath = 'users/test-owner/trackers/marathon-current-v11';
 const cloud = new Map([[oldPath, { state: createInitialState('2026-08-30', '2026-08-30T08:00:00Z') }]]);
 let offline = false;
 let writes = 0;
@@ -53,7 +53,12 @@ async function setup(context, user = owner) {
     const body = (await response.text()).replace(/const REQUESTED_ACCOUNT_HASH = ["'][a-f0-9]+["']/, `const REQUESTED_ACCOUNT_HASH = '${fingerprint}'`);
     return route.fulfill({ response, body });
   });
-  await context.route('**/src/firebase.js*', (route) => route.fulfill({ contentType: 'text/javascript', body: 'export const auth={}; export const db={}; export const firebaseConfigured=true; export const googleProvider={};' }));
+  await context.route('**/src/auth/roles.js*', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace(/export const ADMIN_UID = ["'][^"']+["']/, `export const ADMIN_UID = '${owner.uid}'`);
+    return route.fulfill({ response, body });
+  });
+  await context.route('**/src/firebase.js*', (route) => route.fulfill({ contentType: 'text/javascript', body: 'export const auth={}; export const db={}; export const storage={}; export const firebaseConfigured=true; export const googleProvider={};' }));
   await context.route(/\/firebase_auth\.js(\?|$)/, (route) => route.fulfill({ contentType: 'text/javascript', body: `export const onAuthStateChanged=(_auth,cb)=>{queueMicrotask(()=>cb(${JSON.stringify(user)}));return ()=>{}}; export const signOut=async()=>{}; export const signInWithPopup=async()=>{};` }));
   await context.route(/\/firebase_firestore\.js(\?|$)/, (route) => route.fulfill({ contentType: 'text/javascript', body: firestoreStub }));
   await context.route('**/__test__/cloud', async (route) => {
@@ -95,6 +100,7 @@ try {
   await page.getByLabel('Ради чего я прохожу эти 120 дней', { exact: false }).fill('Хочу действовать свободно и сохранять здоровье.');
   await startButton.click();
   await page.getByRole('button', { name: 'Да, начинаю', exact: true }).click();
+  await page.getByText('Дни', { exact: true }).click();
   await page.getByRole('heading', { name: 'Все 120 дней перед глазами', exact: true }).waitFor();
   assert.equal(await page.locator('.day-tile').count(), 120);
   assert.equal(cloud.get(newPath).state.commitments.items.length, 6);
@@ -116,10 +122,10 @@ try {
   await page.waitForTimeout(900);
   assert.deepEqual(cloud.get(newPath).state.days[0].visibleGoalIds, ['alcohol-zero', 'sweet-zero', 'daily-action']);
   await page.getByRole('button', { name: 'Шаги', exact: true }).last().click();
-  await page.getByTitle('Новый шаг').click();
+  await page.getByRole('button', { name: 'Новый шаг', exact: true }).click();
   await page.getByRole('dialog', { name: 'Новый шаг' }).waitFor();
   await page.getByRole('dialog', { name: 'Новый шаг' }).getByTitle('Закрыть').click();
-  await page.getByRole('button', { name: 'День', exact: true }).click();
+  await page.getByRole('button', { name: 'Сегодня', exact: true }).last().click();
 
   // The test tab is disconnected from its fake cloud, then immediately reloaded after typing.
   offline = true;
@@ -134,7 +140,8 @@ try {
   await page.getByRole('spinbutton', { name: 'Активные', exact: true }).fill('400');
   await page.getByRole('spinbutton', { name: 'Шаги', exact: true }).fill('9000');
   for (const yes of await page.getByRole('button', { name: 'Да', exact: true }).all()) await yes.click();
-  await page.getByPlaceholder('Что сегодня подтвердило: я могу действовать и держать слово себе?').fill('Сделал полезное действие и сохранил свой выбор.');
+  await page.getByText('Рефлексия дня', { exact: false }).click();
+  await page.getByPlaceholder('Какой факт сегодня доказывает, что я двигаюсь?').fill('Сделал полезное действие и сохранил свой выбор.');
   await page.getByText('100 очков уже учтены.', { exact: false }).waitFor();
   assert.equal(await page.getByRole('spinbutton', { name: 'Калории', exact: true }).isEnabled(), true);
   await page.waitForFunction(() => document.querySelector('[aria-label="Сохранено в облаке"]'));
@@ -147,6 +154,7 @@ try {
   await page.clock.setSystemTime(new Date('2026-09-07T10:00:00Z'));
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await page.getByText('День 2 из 120', { exact: true }).waitFor();
+  await page.getByText('Дни', { exact: true }).click();
   await page.getByRole('button', { name: '1 06.09', exact: true }).click();
   await page.getByText('Закрыт автоматически по сохранённым данным', { exact: false }).waitFor();
   assert.equal(await page.getByRole('spinbutton', { name: 'Калории', exact: true }).isEnabled(), false);
@@ -167,6 +175,21 @@ try {
   const beforeIdle = writes;
   await page.waitForTimeout(1600);
   assert.equal(writes, beforeIdle, 'Sync must settle without endless writes');
+  await page.getByRole('button', { name: 'Курс', exact: true }).last().click();
+  await page.getByRole('heading', { name: 'Кем я становлюсь', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Главные векторы', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Развитие', exact: true }).click();
+  await page.getByRole('heading', { name: 'Дерево развития', exact: true }).waitFor();
+  await page.getByText('Перенос в PROD', { exact: true }).first().waitFor();
+  await page.getByRole('button', { name: 'Желания', exact: true }).click();
+  await page.getByRole('heading', { name: 'Карта желаний', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Персонаж', exact: true }).click();
+  await page.getByRole('heading', { name: /Персонаж · уровень/ }).waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: join(output, 'course-mobile.png'), fullPage: true });
+  await checkWidth(page, 'mobile course');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await checkWidth(page, 'desktop course');
   await page.getByRole('button', { name: 'Шаги', exact: true }).last().click();
   await page.getByRole('heading', { name: 'Шаги, которые уже сделаны', exact: true }).waitFor();
   const stepsPath = 'users/test-owner/trackers/steps-v1';
@@ -254,7 +277,7 @@ try {
   await page.getByRole('button', { name: 'Разгрузка', exact: true }).click();
   await page.getByRole('button', { name: 'Добавить дело' }).click();
   const taskDialog = page.getByRole('dialog', { name: 'Новое дело' });
-  await taskDialog.getByRole('textbox', { name: 'Что висит в голове?' }).fill('Разобрать документы');
+  await taskDialog.getByRole('textbox', { name: 'Что нужно сделать?' }).fill('Разобрать документы');
   await taskDialog.getByRole('spinbutton', { name: 'Примерно минут' }).fill('80');
   await taskDialog.getByRole('spinbutton', { name: 'Примерно ₽' }).fill('500');
   await taskDialog.getByRole('button', { name: 'Сохранить дело' }).click();
@@ -277,6 +300,7 @@ try {
   await setup(sameAccountContext, owner);
   const sameAccountPage = await sameAccountContext.newPage();
   await sameAccountPage.goto(url);
+  await sameAccountPage.getByText('Дни', { exact: true }).click();
   await sameAccountPage.getByRole('heading', { name: 'Все 120 дней перед глазами', exact: true }).waitFor();
   await sameAccountPage.getByRole('button', { name: 'Шаги', exact: true }).last().click();
   await sameAccountPage.getByText('Высказаться на встрече', { exact: true }).first().waitFor();
@@ -291,9 +315,8 @@ try {
   await setup(otherContext, other);
   const otherPage = await otherContext.newPage();
   await otherPage.goto(url);
-  await otherPage.getByRole('heading', { name: 'Все 120 дней перед глазами', exact: true }).waitFor();
+  await otherPage.getByRole('heading', { name: 'Вы вошли как участник', exact: true }).waitFor();
   assert.equal(cloud.get(otherPath).state.journeyId, otherState.journeyId);
-  await otherPage.getByRole('button', { name: 'Шаги', exact: true }).first().click();
   assert.equal(await otherPage.getByText('Высказаться на встрече', { exact: true }).count(), 0, 'Another account must not see owner steps');
   await otherContext.close();
   console.log(JSON.stringify({ passed: true, checks: ['owner-only reset', 'six mandatory commitments', 'required purpose', '120 dates', 'day goal selection and editing', 'mobile add opens a step in the steps tab', 'immediate offline save and reload', 'cloud retry', 'live earned result', 'midnight auto-close', 'locked previous day', 'idempotent points', 'no repeated reset', 'step creation and focus', 'repeated executions with frozen points', 'steps statistics and reload', 'same account on another device', 'other accounts isolated', 'mobile and desktop overflow', 'no page errors', 'no sync write loop'], screenshots: output }, null, 2));
