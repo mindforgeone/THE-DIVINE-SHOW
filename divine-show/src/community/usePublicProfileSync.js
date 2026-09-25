@@ -1,10 +1,12 @@
 import { useEffect, useMemo } from 'react';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { roleForUser } from '../auth/roles';
 import { calculateStats, getCurrentDayIndex, number, todayKey } from '../marathon/model';
 
 export function buildPublicProfile(user, privateState) {
   const profile = privateState?.profile || {};
+  const role = roleForUser(user);
   const currentIndex = privateState?.startDate
     ? getCurrentDayIndex(privateState.startDate, todayKey(), privateState.durationDays)
     : 0;
@@ -13,7 +15,8 @@ export function buildPublicProfile(user, privateState) {
 
   return {
     uid: user.uid,
-    displayName: profile.displayName || user.displayName || user.email?.split('@')[0] || 'Участник',
+    displayName: profile.displayName || (role === 'admin' ? 'MindForge' : user.displayName) || user.email?.split('@')[0] || 'Участник',
+    role,
     photoUrl: profile.photoUrl || user.photoURL || '',
     bio: profile.bio || '',
     discoverable: profile.discoverable !== false,
