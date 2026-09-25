@@ -6,6 +6,7 @@ import { compressImageDataUrl, uploadLifeImage } from '../life/files';
 import DayDetailsModal from '../marathon/DayDetailsModal';
 import { MeasurementDashboard, ProgressPhotoGallery } from './BodyProgress';
 import { MEASUREMENT_FIELDS, PHOTO_STAGES } from './bodyProgressData';
+import { migrateMemberState } from './memberRules';
 import {
   DAY_RESULTS,
   calculateEnergyBalance,
@@ -24,20 +25,14 @@ import {
 
 const CommunityModule = lazy(() => import('../community/CommunityModule'));
 
-const memberRules = (startDate, updatedAt) => [
-  { id: 'alcohol', title: 'Без алкоголя', type: 'boolean', target: 1, unit: '', critical: true },
-  { id: 'member-nutrition', title: 'Питался по своему плану', type: 'boolean', target: 1, unit: '' },
-  { id: 'member-movement', title: 'Сделал выбранную активность', type: 'boolean', target: 1, unit: '' },
-].map((rule, order) => ({ ...rule, active: true, required: true, scoreEnabled: true, todayVisible: true, statsVisible: true, order, startDate, endDate: '', createdAt: `${startDate}T00:00:00.000Z`, updatedAt, deletedAt: null }));
-
-const RETIRED_MEMBER_RULES = new Set(['wot', 'reels', 'recover', 'member-alcohol', 'member-calories', 'nutrition-1850']);
-
 export default function MemberApp({ user, state, commit, currentDate, syncState, onReset, onLogOut }) {
   const [view, setView] = useState('today');
   const [range, setRange] = useState('30');
   const [showDays, setShowDays] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [dayPreviewIndex, setDayPreviewIndex] = useState(null);
+  const userDisplayName = user.displayName;
+  const userPhotoUrl = user.photoURL;
   const duration = state.durationDays;
   const currentIndex = getCurrentDayIndex(state.startDate, currentDate, duration);
   const day = state.days[currentIndex];
@@ -46,34 +41,9 @@ export default function MemberApp({ user, state, commit, currentDate, syncState,
   const evaluation = day.result ? { ...DAY_RESULTS[day.result], score: day.score, xp: day.xp, canClose: true, blockers: [] } : evaluateDay(day, state.goals, state.dayCriteria, state.resultThresholds, state.codexRules);
 
   useEffect(() => {
-    if (state.memberSchemaVersion >= 3) return;
-    commit((current, now) => ({
-      ...current,
-      memberInitialized: true,
-      memberSchemaVersion: 3,
-      codexRules: [
-        ...current.codexRules.filter((rule) => RETIRED_MEMBER_RULES.has(rule.id)).map((rule) => ({ ...rule, active: false, deletedAt: now, updatedAt: now })),
-        ...current.codexRules.filter((rule) => !RETIRED_MEMBER_RULES.has(rule.id) && !['alcohol', 'member-nutrition', 'member-movement'].includes(rule.id)),
-        ...memberRules(current.startDate, now),
-      ],
-      profile: {
-        ...current.profile,
-        displayName: current.profile.displayName || user.displayName || '',
-        photoUrl: current.profile.photoUrl || user.photoURL || '',
-        startWeight: current.profile.startWeight || '',
-        calorieTarget: current.profile.calorieTarget || 1850,
-        stepTarget: current.profile.stepTarget || 8000,
-        trackActiveCalories: Boolean(current.profile.trackActiveCalories),
-        discoverable: current.profile.discoverable !== false,
-        shareWeight: Boolean(current.profile.shareWeight),
-        shareProgress: current.profile.shareProgress !== false,
-        bio: current.profile.bio || '',
-      },
-      bodyLogs: current.bodyLogs || [],
-      progressPhotos: current.progressPhotos || [],
-      dayCriteria: current.dayCriteria.map((criterion) => criterion.field === 'activeCalories' ? { ...criterion, active: false, required: false, updatedAt: now } : criterion.field === 'steps' ? { ...criterion, required: false, updatedAt: now } : criterion),
-    }));
-  }, [commit, state.memberSchemaVersion, user.displayName, user.photoURL]);
+    if (state.memberSchemaVersion >= 4) return;
+    commit((current, now) => migrateMemberState(current, now, { displayName: userDisplayName, photoURL: userPhotoUrl }));
+  }, [commit, state.memberSchemaVersion, userDisplayName, userPhotoUrl]);
 
   const updateDay = (patch) => {
     if (!editable) return;

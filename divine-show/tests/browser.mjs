@@ -25,11 +25,20 @@ const request = async (body) => {
   if (!response.ok) throw new Error('Test offline');
   return response.json();
 };
-const snapshot = (data) => ({ exists: () => data !== null, data: () => data || undefined, metadata: { fromCache: false, hasPendingWrites: false } });
+const snapshot = (data) => ({ exists: () => data !== null, data: () => data || undefined, docs: [], metadata: { fromCache: false, hasPendingWrites: false } });
 export const doc = (_db, ...parts) => parts.join('/');
+export const collection = (_db, ...parts) => parts.join('/');
+export const query = (path) => path;
+export const where = (...parts) => parts;
+export const orderBy = (...parts) => parts;
 export const serverTimestamp = () => new Date().toISOString();
 export const setDoc = async (path, value, options) => request({ type: 'write', operations: [{ type: 'set', path, value, merge: options?.merge }] });
+export const updateDoc = async (path, value) => request({ type: 'write', operations: [{ type: 'set', path, value, merge: true }] });
+export const addDoc = async (path, value) => request({ type: 'write', operations: [{ type: 'set', path: path + '/generated', value }] });
+export const getDocs = async () => ({ docs: [] });
+export const writeBatch = () => { const operations = []; return { set: (path, value, options) => operations.push({ type: 'set', path, value, merge: options?.merge }), update: (path, value) => operations.push({ type: 'set', path, value, merge: true }), commit: () => request({ type: 'write', operations }) }; };
 export const onSnapshot = (path, _options, callback, onError) => {
+  if (typeof _options === 'function') { onError = callback; callback = _options; }
   const item = { path, callback }; subscribers.add(item);
   request({ type: 'get', path }).then((value) => { if(subscribers.has(item)) callback(snapshot(value)); }).catch(onError);
   return () => subscribers.delete(item);
@@ -332,6 +341,15 @@ try {
   assert.equal(await otherPage.getByText('Высказаться на встрече', { exact: true }).count(), 0, 'Another account must not see owner steps');
   await otherPage.screenshot({ path: join(output, 'member-today.png'), fullPage: true });
   await checkWidth(otherPage, 'member mobile today');
+  await otherPage.getByRole('button', { name: 'Друзья', exact: true }).last().click();
+  await otherPage.getByRole('heading', { name: 'Участники и друзья', exact: true }).waitFor();
+  await otherPage.getByRole('heading', { name: 'Stopmenlaser', exact: true }).waitFor();
+  assert.equal(await otherPage.getByText('Администратор', { exact: true }).count(), 1, 'Admin must stay visible when publicProfiles is empty');
+  await otherPage.screenshot({ path: join(output, 'member-friends.png'), fullPage: true });
+  await otherPage.getByRole('button', { name: 'Прогресс', exact: true }).last().click();
+  await otherPage.getByText('Питался по своему плану', { exact: true }).waitFor();
+  assert.equal(await otherPage.getByText('Без World of Tanks', { exact: true }).count(), 0);
+  assert.equal(await otherPage.getByText('Instagram / Reels меньше 20 минут', { exact: true }).count(), 0);
   await otherPage.getByRole('button', { name: 'Профиль', exact: true }).last().click();
   await otherPage.getByRole('heading', { name: /other@example.test|Мой профиль/ }).waitFor();
   await otherPage.getByRole('heading', { name: 'Новая контрольная точка', exact: true }).waitFor();

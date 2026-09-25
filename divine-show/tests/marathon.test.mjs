@@ -7,6 +7,8 @@ import {
 } from '../src/marathon/model.js';
 import { START_COMMITMENTS, acceptCommitments, commitmentsForDuration } from '../src/marathon/commitments.js';
 import { resolveAccountStorage } from '../src/marathon/accountStorage.js';
+import { mergeParticipantProfiles } from '../src/community/participantDirectory.js';
+import { migrateMemberState } from '../src/member/memberRules.js';
 
 const START = '2026-09-06';
 const MORNING = '2026-09-06T07:00:00.000Z';
@@ -47,6 +49,23 @@ test('admin and member accounts use isolated reset generations', async () => {
   assert.equal(clearedMember.resetRequested, false);
   assert.equal(clearedMember.documentId, 'marathon-member-v12');
   assert.ok(clearedMember.oldDocumentIds.includes('marathon120-v9'));
+});
+
+test('participant directory survives an empty public profile collection', () => {
+  const profiles = mergeParticipantProfiles([{ uid: '5CMckLFqiCPoPCBQLz1YqBkgVXs1', role: 'admin', displayName: 'Old name' }]);
+  assert.equal(profiles.length, 4);
+  assert.equal(profiles.find((profile) => profile.role === 'admin').displayName, 'Stopmenlaser');
+  assert.ok(profiles.some((profile) => profile.displayName === 'Ксения Борисова'));
+});
+
+test('member migration exposes only the three member defaults and keeps custom rules', () => {
+  const state = makeState();
+  state.codexRules.push({ id: 'rule-custom', title: 'Моё правило', active: true, statsVisible: true });
+  const migrated = migrateMemberState(state, EVENING, { displayName: 'Member' });
+  const visible = migrated.codexRules.filter((rule) => rule.statsVisible !== false).map((rule) => rule.title);
+  assert.deepEqual(visible, ['Моё правило', 'Без алкоголя', 'Питался по своему плану', 'Сделал выбранную активность']);
+  assert.equal(migrated.codexRules.find((rule) => rule.id === 'wot').statsVisible, false);
+  assert.equal(migrated.codexRules.find((rule) => rule.id === 'reels').todayVisible, false);
 });
 
 test('complete current day earns color and points without locking or clicking save', () => {

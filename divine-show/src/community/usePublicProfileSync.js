@@ -52,14 +52,21 @@ export function usePublicProfileSync(user, privateState) {
     if (!db || !publicProfile?.uid) return undefined;
     const signature = JSON.stringify(publicProfile);
     if (signature === lastSent.current) return undefined;
-    const timer = window.setTimeout(() => {
-      lastSent.current = signature;
-      setDoc(
-        doc(db, 'publicProfiles', publicProfile.uid),
-        { ...publicProfile, updatedAtClient: new Date().toISOString(), updatedAt: serverTimestamp() },
-        { merge: true },
-      ).catch(() => {});
-    }, 800);
-    return () => window.clearTimeout(timer);
+    let cancelled = false;
+    let timer;
+    const send = async () => {
+      try {
+        await setDoc(
+          doc(db, 'publicProfiles', publicProfile.uid),
+          { ...publicProfile, updatedAtClient: new Date().toISOString(), updatedAt: serverTimestamp() },
+          { merge: true },
+        );
+        if (!cancelled) lastSent.current = signature;
+      } catch {
+        if (!cancelled) timer = window.setTimeout(send, 60000);
+      }
+    };
+    timer = window.setTimeout(send, 800);
+    return () => { cancelled = true; window.clearTimeout(timer); };
   }, [publicProfile]);
 }
