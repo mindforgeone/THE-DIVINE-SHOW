@@ -97,13 +97,23 @@ export function useMarathonStore(user) {
       if (!session.alive || !session.writable || session.state?.contractAcceptedAt) return false;
       const next = createInitialState(todayKey(), commitments.acceptedAt, commitments, durationDays);
       const documentRef = doc(db, 'users', uid, 'trackers', session.storage.documentId);
-      const saved = await runTransaction(db, async (transaction) => {
-        const snapshot = await transaction.get(documentRef);
-        const existing = snapshot.exists() ? snapshot.data().state : null;
-        if (existing?.contractAcceptedAt) return existing;
-        transaction.set(documentRef, { state: next, updatedAt: serverTimestamp() }, { merge: true });
-        return next;
-      });
+      let saved;
+      try {
+        saved = await runTransaction(db, async (transaction) => {
+          const snapshot = await transaction.get(documentRef);
+          const existing = snapshot.exists() ? snapshot.data().state : null;
+          if (existing?.contractAcceptedAt) return existing;
+          transaction.set(documentRef, { state: next, updatedAt: serverTimestamp() }, { merge: true });
+          return next;
+        });
+      } catch (failure) {
+        if (!['resource-exhausted', 'unavailable'].includes(failure?.code)) throw failure;
+        publish(next);
+        setSyncState('offline');
+        setError('Старт сохранён на устройстве. Синхронизация с облаком продолжится автоматически.');
+        schedule();
+        return true;
+      }
       if (!session.alive) return false;
       session.remoteJson = JSON.stringify(saved);
       setError('');
