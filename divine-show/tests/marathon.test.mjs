@@ -9,6 +9,7 @@ import { START_COMMITMENTS, acceptCommitments, commitmentsForDuration } from '..
 import { resolveAccountStorage } from '../src/marathon/accountStorage.js';
 import { mergeParticipantProfiles } from '../src/community/participantDirectory.js';
 import { migrateMemberState } from '../src/member/memberRules.js';
+import { loadFriendRequestOutbox, queueFriendRequest, removeFriendRequestFromOutbox } from '../src/community/friendRequestOutbox.js';
 
 const START = '2026-09-06';
 const MORNING = '2026-09-06T07:00:00.000Z';
@@ -66,6 +67,25 @@ test('member migration exposes only the three member defaults and keeps custom r
   assert.deepEqual(visible, ['Моё правило', 'Без алкоголя', 'Питался по своему плану', 'Сделал выбранную активность']);
   assert.equal(migrated.codexRules.find((rule) => rule.id === 'wot').statsVisible, false);
   assert.equal(migrated.codexRules.find((rule) => rule.id === 'reels').todayVisible, false);
+});
+
+test('friend requests survive reloads until cloud delivery succeeds', () => {
+  const values = new Map();
+  const previousStorage = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  };
+  try {
+    queueFriendRequest('sender', { id: 'sender__receiver', to: 'receiver', createdAtClient: EVENING });
+    assert.equal(loadFriendRequestOutbox('sender')[0].to, 'receiver');
+    assert.deepEqual(removeFriendRequestFromOutbox('sender', 'sender__receiver'), []);
+    assert.deepEqual(loadFriendRequestOutbox('sender'), []);
+  } finally {
+    if (previousStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previousStorage;
+  }
 });
 
 test('complete current day earns color and points without locking or clicking save', () => {

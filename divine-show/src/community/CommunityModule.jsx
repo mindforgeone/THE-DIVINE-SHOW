@@ -6,6 +6,7 @@ import { roleForUser } from '../auth/roles';
 import { createId, number } from '../marathon/model';
 import { MeasurementDashboard, ProgressPhotoGallery } from '../member/BodyProgress';
 import { mergeParticipantProfiles } from './participantDirectory';
+import { loadFriendRequestOutbox, queueFriendRequest, removeFriendRequestFromOutbox } from './friendRequestOutbox';
 
 const friendshipId = (first, second) => [first, second].sort().join('__');
 
@@ -25,6 +26,8 @@ export default function CommunityModule({ user }) {
   const [requestsSyncing, setRequestsSyncing] = useState(false);
   const uid = user.uid;
   const admin = roleForUser(user) === 'admin';
+  const [queuedRequests, setQueuedRequests] = useState(() => loadFriendRequestOutbox(uid));
+  const waitingForCloud = requestsSyncing || queuedRequests.length > 0;
 
   useEffect(() => {
     if (!db || !uid) return undefined;
@@ -39,18 +42,45 @@ export default function CommunityModule({ user }) {
   }, [uid]);
 
   useEffect(() => {
+    let alive = true;
+    let timer;
+    const flush = async () => {
+      const queued = loadFriendRequestOutbox(uid);
+      for (const request of queued) {
+        try {
+          await setDoc(doc(db, 'friendRequests', request.id), { from: uid, to: request.to, participants: [uid, request.to], status: 'pending', createdAtClient: request.createdAtClient, createdAt: serverTimestamp() });
+          if (!alive) return;
+          setQueuedRequests(removeFriendRequestFromOutbox(uid, request.id));
+          setCloudMessage('Запрос доставлен. Он появится у получателя.');
+        } catch {
+          if (alive) setQueuedRequests(loadFriendRequestOutbox(uid));
+          break;
+        }
+      }
+      if (alive) timer = window.setTimeout(flush, 60000);
+    };
+    const onOnline = () => { window.clearTimeout(timer); flush(); };
+    flush();
+    window.addEventListener('online', onOnline);
+    return () => { alive = false; window.clearTimeout(timer); window.removeEventListener('online', onOnline); };
+  }, [uid]);
+
+  useEffect(() => {
     if (!activeChat) return undefined;
     return onSnapshot(query(collection(db, 'conversations', activeChat.id, 'messages'), orderBy('createdAtClient', 'asc')), (snapshot) => setMessages(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
   }, [activeChat]);
 
   const profileById = (id) => profiles.find((item) => item.uid === id) || { uid: id, displayName: 'Участник', photoUrl: '' };
   const friendIds = useMemo(() => [...new Set(friendships.flatMap((item) => item.members || []).filter((id) => id !== uid))], [friendships, uid]);
-  const pendingByUser = (id) => requests.find((item) => item.status === 'pending' && item.participants?.includes(id));
+  const pendingByUser = (id) => requests.find((item) => item.status === 'pending' && item.participants?.includes(id)) || queuedRequests.find((item) => item.to === id);
   const requestFriend = async (to) => {
     const id = friendshipId(uid, to);
+    const createdAtClient = new Date().toISOString();
     setCloudMessage('');
+    setQueuedRequests(queueFriendRequest(uid, { id, from: uid, to, createdAtClient }));
     try {
-      await setDoc(doc(db, 'friendRequests', id), { from: uid, to, participants: [uid, to], status: 'pending', createdAtClient: new Date().toISOString(), createdAt: serverTimestamp() });
+      await setDoc(doc(db, 'friendRequests', id), { from: uid, to, participants: [uid, to], status: 'pending', createdAtClient, createdAt: serverTimestamp() });
+      setQueuedRequests(removeFriendRequestFromOutbox(uid, id));
       setCloudMessage('Запрос доставлен. Он появится у получателя.');
     } catch {
       setCloudMessage('Запрос сохранён на устройстве, но Firebase пока не принял его. Не отправляй повторно: синхронизация продолжится автоматически.');
@@ -100,8 +130,8 @@ export default function CommunityModule({ user }) {
 
   return <div className="grid gap-4">
     <section className="border border-[#cfe0dc] bg-white p-4 rounded-lg"><div className="flex items-center gap-3"><Users size={22} className="text-[#0d8b71]" /><div><div className="text-sm font-black text-[#0d735f]">Вместе</div><h1 className="text-2xl font-black">Участники и друзья</h1></div></div><p className="mt-2 text-sm font-semibold leading-6 text-slate-500">Все участники видят друг друга. В друзьях открывается больше прогресса, личные сообщения и совместные вызовы.</p><div className="mt-4 grid grid-cols-3 gap-1 bg-[#edf4f2] p-1 rounded-md">{[['people', 'Участники'], ['messages', 'Сообщения'], ['challenges', 'Вызовы']].map(([id, label]) => <button key={id} type="button" onClick={() => setTab(id)} className={`min-h-10 text-xs font-black rounded-sm ${tab === id ? 'bg-[#15333b] text-white' : 'text-slate-500'}`}>{label}</button>)}</div></section>
-    {(cloudMessage || requestsSyncing) && <div role="status" className={`flex items-start gap-2 border p-3 text-sm font-bold leading-6 rounded-lg ${requestsSyncing ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-[#b9ddd3] bg-[#eaf8f4] text-[#0d735f]'}`}><AlertCircle size={18} className="mt-0.5 shrink-0" />{requestsSyncing ? 'Запрос ожидает подтверждения облаком. У получателя он появится только после синхронизации.' : cloudMessage}</div>}
-    {tab === 'people' && <People profiles={profiles.filter((item) => item.uid !== uid)} requests={requests} friendIds={friendIds} currentUid={uid} admin={admin} requestsSyncing={requestsSyncing} pendingByUser={pendingByUser} onRequest={requestFriend} onAnswer={answerRequest} onMessage={openChat} onInspect={inspect} onChallenge={(friendUid) => setChallengeDraft({ participants: [friendUid] })} />}
+    {(cloudMessage || waitingForCloud) && <div role="status" className={`flex items-start gap-2 border p-3 text-sm font-bold leading-6 rounded-lg ${waitingForCloud ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-[#b9ddd3] bg-[#eaf8f4] text-[#0d735f]'}`}><AlertCircle size={18} className="mt-0.5 shrink-0" />{waitingForCloud ? 'Запрос ожидает подтверждения облаком. Он сохранён на устройстве и будет доставлен автоматически.' : cloudMessage}</div>}
+    {tab === 'people' && <People profiles={profiles.filter((item) => item.uid !== uid)} requests={requests} friendIds={friendIds} currentUid={uid} admin={admin} requestsSyncing={waitingForCloud} pendingByUser={pendingByUser} onRequest={requestFriend} onAnswer={answerRequest} onMessage={openChat} onInspect={inspect} onChallenge={(friendUid) => setChallengeDraft({ participants: [friendUid] })} />}
     {tab === 'messages' && <Messages conversations={conversations} active={activeChat} messages={messages} uid={uid} profileById={profileById} text={text} onText={setText} onOpen={setActiveChat} onSend={send} />}
     {tab === 'challenges' && <Challenges items={challenges} uid={uid} profileById={profileById} friendIds={friendIds} onOpen={() => setChallengeDraft({ participants: [] })} onChat={(item) => { setActiveChat({ id: item.chatId, members: item.participants, title: item.title, type: 'challenge' }); setTab('messages'); }} />}
     {challengeDraft && <ChallengeEditor friendIds={friendIds} profileById={profileById} initialParticipants={challengeDraft.participants} onClose={() => setChallengeDraft(null)} onSave={async (draft) => { const id = createId('challenge'); const participants = [uid, ...draft.participants]; const chatId = `challenge__${id}`; const batch = writeBatch(db); batch.set(doc(db, 'challenges', id), { ...draft, createdBy: uid, participants, chatId, status: 'active', createdAtClient: new Date().toISOString(), createdAt: serverTimestamp() }); batch.set(doc(db, 'conversations', chatId), { members: participants, title: draft.title, type: 'challenge', createdAtClient: new Date().toISOString(), createdAt: serverTimestamp() }); await batch.commit(); setChallengeDraft(null); }} />}
