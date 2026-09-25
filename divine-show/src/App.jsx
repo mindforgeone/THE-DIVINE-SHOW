@@ -45,6 +45,8 @@ import StepsModule from './steps/StepsModule';
 import { useLifeStore } from './life/useLifeStore';
 import CourseModule from './life/CourseModule';
 import MemberApp from './member/MemberApp';
+import DayDetailsModal from './marathon/DayDetailsModal';
+import { usePublicProfileSync } from './community/usePublicProfileSync';
 import { CodexPanel, CodexStats, EventsPanel, FocusActions, PatternsPanel } from './life/LifePanels';
 import { acceptCommitments, acceptMemberCommitments, commitmentsForDuration, memberCommitmentsForDuration } from './marathon/commitments';
 import journeyDawn from './assets/journey-dawn.jpg';
@@ -92,6 +94,7 @@ function AccountApp({ authSession }) {
   const role = roleForUser(user);
   const adminUser = role === 'admin' ? user : null;
   const { state, history, ready: cloudReady, syncState, error: storageError, starting, currentDate, start, startNext, commit, retry } = useMarathonStore(user);
+  usePublicProfileSync(user, cloudReady ? state : undefined);
   const stepsStore = useStepsStore(cloudReady && state?.contractAcceptedAt ? adminUser : null);
   const lifeStore = useLifeStore(cloudReady && state?.contractAcceptedAt ? adminUser : null);
   const [activeDayIndex, setActiveDayIndex] = useState(null);
@@ -105,6 +108,7 @@ function AccountApp({ authSession }) {
   const [confirmClose, setConfirmClose] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [celebration, setCelebration] = useState(null);
+  const [dayPreviewIndex, setDayPreviewIndex] = useState(null);
 
   const startJourney = async (commitments, durationDays) => {
     if (await start(commitments, durationDays)) {
@@ -248,6 +252,8 @@ function AccountApp({ authSession }) {
   return (
     <div className="min-h-screen bg-[#f4f7f8] text-[#102a43]">
       <CompactHeader
+        user={user}
+        avatarUrl={state.profile?.photoUrl || user.photoURL}
         currentDay={currentDayNumber}
         totalDays={durationDays}
         progress={Math.round((currentDayNumber / durationDays) * 100)}
@@ -270,7 +276,7 @@ function AccountApp({ authSession }) {
           selectedIndex={selectedIndex}
           totalDays={durationDays}
           startDate={state.startDate}
-          onSelect={setActiveDayIndex}
+          onSelect={(index) => { setActiveDayIndex(index); setDayPreviewIndex(index); }}
           stats={stats}
         />}
 
@@ -339,6 +345,7 @@ function AccountApp({ authSession }) {
         {confirmClose && <ConfirmClose key="close-day" evaluation={evaluation} weeklyRequired={weeklyReviewRequired} finalRequired={finalReviewRequired} onConfirm={closeDay} onClose={() => setConfirmClose(false)} />}
         {showExport && <ExportModal key="export" data={exportData} totalDays={durationDays} onClose={() => setShowExport(false)} />}
         {celebration && <Celebration key="celebration" result={celebration} />}
+        {dayPreviewIndex !== null && <DayDetailsModal key="day-details" state={state} dayIndex={dayPreviewIndex} onClose={() => setDayPreviewIndex(null)} />}
       </AnimatePresence>
     </div>
   );
@@ -466,7 +473,7 @@ function CommitmentSummary({ commitments, totalDays }) {
   return <details className="border-y border-[#d8e3e7] py-3"><summary className="flex cursor-pointer items-center justify-between gap-3 text-sm font-bold text-[#16865f]"><span className="flex items-center gap-2"><Heart size={17} />Мой выбор на {totalDays} дней</span><ChevronDown size={17} /></summary><p className="mt-3 font-semibold leading-6">{commitments.purpose}</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{commitments.items.map((item) => <div key={item.id}><h3 className="text-sm font-bold">{item.title}</h3><p className="mt-1 text-sm leading-6 text-slate-600">{item.text}</p></div>)}</div></details>;
 }
 
-function CompactHeader({ currentDay, totalDays, progress, syncState, view, onView, onExport, onLogOut }) {
+function CompactHeader({ user, avatarUrl, currentDay, totalDays, progress, syncState, view, onView, onExport, onLogOut }) {
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <header className="sticky top-0 z-40 border-b border-[#d9e4e8] bg-white/95 backdrop-blur-xl">
@@ -484,6 +491,7 @@ function CompactHeader({ currentDay, totalDays, progress, syncState, view, onVie
           <NavButton active={view === 'friends'} icon={<Users size={17} />} label="Друзья" onClick={() => onView('friends')} />
         </div>
         <span role="status" aria-label={syncState === 'offline' ? 'Сохранено на устройстве, ожидает синхронизации' : syncState === 'saving' ? 'Сохраняю в облако' : 'Сохранено в облаке'} className={`h-2.5 w-2.5 shrink-0 rounded-full ${syncState === 'offline' ? 'bg-rose-500' : syncState === 'saving' ? 'animate-pulse bg-amber-400' : 'bg-emerald-500'}`} title={syncState === 'offline' ? 'Сохранено на устройстве' : syncState === 'saving' ? 'Сохраняю в облако' : 'Сохранено в облаке'} />
+        {avatarUrl ? <img src={avatarUrl} alt={user.displayName || 'Аватар'} className="h-10 w-10 shrink-0 border border-[#d9e4e8] bg-[#edf4f6] object-cover rounded-md" title={user.displayName || user.email || 'Профиль'} /> : <span className="grid h-10 w-10 shrink-0 place-items-center bg-[#eaf8fd] font-black text-[#0d7ea5] rounded-md" title={user.email || 'Профиль'}>{(user.displayName || user.email || 'Я').trim().charAt(0).toUpperCase()}</span>}
         <div className="relative">
           <button type="button" onClick={() => setMenuOpen((value) => !value)} className="grid h-10 w-10 place-items-center border border-[#d9e4e8] bg-white text-slate-700 rounded-md" title="Меню"><Menu size={19} /></button>
           <AnimatePresence>{menuOpen && <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="absolute right-0 top-12 z-50 w-52 border border-[#d9e4e8] bg-white p-2 shadow-xl rounded-lg"><MenuItem icon={<Download size={16} />} label="Экспорт" onClick={() => { onExport(); setMenuOpen(false); }} /><MenuItem icon={<LogOut size={16} />} label="Выйти" onClick={onLogOut} /></motion.div>}</AnimatePresence>

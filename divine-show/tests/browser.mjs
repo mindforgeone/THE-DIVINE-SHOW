@@ -28,6 +28,7 @@ const request = async (body) => {
 const snapshot = (data) => ({ exists: () => data !== null, data: () => data || undefined, metadata: { fromCache: false, hasPendingWrites: false } });
 export const doc = (_db, ...parts) => parts.join('/');
 export const serverTimestamp = () => new Date().toISOString();
+export const setDoc = async (path, value, options) => request({ type: 'write', operations: [{ type: 'set', path, value, merge: options?.merge }] });
 export const onSnapshot = (path, _options, callback, onError) => {
   const item = { path, callback }; subscribers.add(item);
   request({ type: 'get', path }).then((value) => { if(subscribers.has(item)) callback(snapshot(value)); }).catch(onError);
@@ -151,6 +152,12 @@ try {
   await page.getByText('День 2 из 120', { exact: true }).waitFor();
   await page.getByText('Дни', { exact: true }).click();
   await page.getByRole('button', { name: '1 06.09', exact: true }).click();
+  const adminDayDetails = page.getByRole('dialog', { name: 'День 1', exact: true });
+  await adminDayDetails.waitFor();
+  await adminDayDetails.getByText('Энергетический итог', { exact: true }).waitFor();
+  await page.waitForTimeout(400);
+  await adminDayDetails.screenshot({ path: join(output, 'day-details-admin-mobile.png') });
+  await adminDayDetails.getByTitle('Закрыть').click();
   await page.getByText('Закрыт автоматически по сохранённым данным', { exact: false }).waitFor();
   assert.equal(await page.getByRole('spinbutton', { name: 'Калории', exact: true }).isEnabled(), false);
   await page.waitForTimeout(1000);
@@ -311,6 +318,16 @@ try {
   const otherPage = await otherContext.newPage();
   await otherPage.goto(url);
   await otherPage.getByRole('heading', { name: 'Сегодняшние доказательства', exact: true }).waitFor();
+  await otherPage.getByRole('button', { name: /Карта марафона/ }).click();
+  await otherPage.getByRole('button', { name: '1 06.09', exact: true }).click();
+  const memberDayDetails = otherPage.getByRole('dialog', { name: 'День 1', exact: true });
+  await memberDayDetails.waitFor();
+  await memberDayDetails.getByText('Мой Кодекс', { exact: true }).waitFor();
+  assert.equal(await memberDayDetails.getByText('Без алкоголя', { exact: true }).count(), 1, 'Member Codex must not duplicate rules');
+  assert.equal(await memberDayDetails.getByText('Без World of Tanks', { exact: true }).count(), 0, 'Admin-only rules must not leak into member accounts');
+  await otherPage.waitForTimeout(400);
+  await memberDayDetails.screenshot({ path: join(output, 'day-details-member-mobile.png') });
+  await memberDayDetails.getByTitle('Закрыть').click();
   assert.equal(cloud.get(otherPath).state.journeyId, otherState.journeyId);
   assert.equal(await otherPage.getByText('Высказаться на встрече', { exact: true }).count(), 0, 'Another account must not see owner steps');
   await otherPage.screenshot({ path: join(output, 'member-today.png'), fullPage: true });

@@ -43,6 +43,10 @@ test('reset isolates only the requested account and preserves other account path
   assert.equal(other.resetRequested, false);
   assert.equal(other.documentId, 'marathon120-v9');
   assert.notEqual(owner.cacheNamespace, other.cacheNamespace);
+  const clearedMember = await resolveAccountStorage({ email: 'mindforge.one@gmail.com' });
+  assert.equal(clearedMember.resetRequested, true);
+  assert.equal(clearedMember.documentId, 'marathon-member-v10');
+  assert.ok(clearedMember.oldDocumentIds.includes('marathon120-v9'));
 });
 
 test('complete current day earns color and points without locking or clicking save', () => {

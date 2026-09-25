@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Activity, BarChart3, CalendarDays, Camera, Check, CheckCircle2, ChevronDown, Footprints, LogOut, Scale, UserRound, Users, Utensils, X } from 'lucide-react';
 import { CodexPanel, CodexStats } from '../life/LifePanels';
 import { compressImageDataUrl, uploadLifeImage } from '../life/files';
+import DayDetailsModal from '../marathon/DayDetailsModal';
 import {
   DAY_RESULTS,
   calculateEnergyBalance,
@@ -21,18 +22,21 @@ import {
 
 const CommunityModule = lazy(() => import('../community/CommunityModule'));
 
-const memberRules = (startDate) => [
-  { id: 'member-alcohol', title: 'Без алкоголя', type: 'boolean', target: 1, unit: '', critical: true },
+const memberRules = (startDate, updatedAt) => [
+  { id: 'alcohol', title: 'Без алкоголя', type: 'boolean', target: 1, unit: '', critical: true },
   { id: 'member-nutrition', title: 'Питался по своему плану', type: 'boolean', target: 1, unit: '' },
-  { id: 'member-calories', title: 'Калории в личном лимите', type: 'limit', target: 1850, unit: 'ккал', sourceField: 'calories' },
+  { id: 'nutrition-1850', title: 'Калории в личном лимите', type: 'limit', target: 1850, unit: 'ккал', sourceField: 'calories' },
   { id: 'member-movement', title: 'Сделал выбранную активность', type: 'boolean', target: 1, unit: '' },
-].map((rule, order) => ({ ...rule, active: true, required: true, scoreEnabled: true, todayVisible: true, statsVisible: true, order, startDate, endDate: '', createdAt: `${startDate}T00:00:00.000Z`, updatedAt: `${startDate}T00:00:00.000Z`, deletedAt: null }));
+].map((rule, order) => ({ ...rule, active: true, required: true, scoreEnabled: true, todayVisible: true, statsVisible: true, order, startDate, endDate: '', createdAt: `${startDate}T00:00:00.000Z`, updatedAt, deletedAt: null }));
+
+const RETIRED_MEMBER_RULES = new Set(['wot', 'reels', 'recover', 'member-alcohol', 'member-calories']);
 
 export default function MemberApp({ user, state, commit, currentDate, syncState, onLogOut }) {
   const [view, setView] = useState('today');
   const [range, setRange] = useState('30');
   const [showDays, setShowDays] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  const [dayPreviewIndex, setDayPreviewIndex] = useState(null);
   const duration = state.durationDays;
   const currentIndex = getCurrentDayIndex(state.startDate, currentDate, duration);
   const day = state.days[currentIndex];
@@ -41,11 +45,16 @@ export default function MemberApp({ user, state, commit, currentDate, syncState,
   const evaluation = day.result ? { ...DAY_RESULTS[day.result], score: day.score, xp: day.xp, canClose: true, blockers: [] } : evaluateDay(day, state.goals, state.dayCriteria, state.resultThresholds, state.codexRules);
 
   useEffect(() => {
-    if (state.memberInitialized) return;
+    if (state.memberSchemaVersion >= 2) return;
     commit((current, now) => ({
       ...current,
       memberInitialized: true,
-      codexRules: memberRules(current.startDate),
+      memberSchemaVersion: 2,
+      codexRules: [
+        ...current.codexRules.filter((rule) => RETIRED_MEMBER_RULES.has(rule.id)).map((rule) => ({ ...rule, active: false, deletedAt: now, updatedAt: now })),
+        ...current.codexRules.filter((rule) => !RETIRED_MEMBER_RULES.has(rule.id) && !['alcohol', 'member-nutrition', 'nutrition-1850', 'member-movement'].includes(rule.id)),
+        ...memberRules(current.startDate, now),
+      ],
       profile: {
         ...current.profile,
         displayName: user.displayName || '',
@@ -63,7 +72,7 @@ export default function MemberApp({ user, state, commit, currentDate, syncState,
       progressPhotos: current.progressPhotos || [],
       dayCriteria: current.dayCriteria.map((criterion) => criterion.field === 'activeCalories' ? { ...criterion, active: false, required: false, updatedAt: now } : criterion.field === 'steps' ? { ...criterion, required: false, updatedAt: now } : criterion),
     }));
-  }, [commit, state.memberInitialized, user.displayName, user.photoURL]);
+  }, [commit, state.memberSchemaVersion, user.displayName, user.photoURL]);
 
   const updateDay = (patch) => {
     if (!editable) return;
@@ -83,12 +92,12 @@ export default function MemberApp({ user, state, commit, currentDate, syncState,
     ['friends', 'Друзья', Users],
   ];
   return <div className="min-h-screen bg-[#f2f7f6] pb-24 text-[#15333b]">
-    <header className="sticky top-0 z-40 border-b border-[#cfe0dc] bg-white/95 backdrop-blur-xl"><div className="mx-auto flex min-h-16 max-w-5xl items-center gap-3 px-3 sm:px-5"><button type="button" onClick={() => setView('today')} className="grid h-10 w-10 place-items-center bg-[#0d8b71] font-black text-white rounded-md">{duration}</button><div className="min-w-0 flex-1"><div className="flex justify-between text-xs font-black text-slate-500"><span>День {currentIndex + 1} из {duration}</span><span>{Math.round((currentIndex + 1) / duration * 100)}%</span></div><div className="mt-1 h-2 overflow-hidden bg-[#dfeae7] rounded-sm"><motion.div className="h-full bg-[#17a77f]" animate={{ width: `${(currentIndex + 1) / duration * 100}%` }} /></div></div><span className={`h-2.5 w-2.5 rounded-full ${syncState === 'synced' ? 'bg-emerald-500' : syncState === 'saving' ? 'animate-pulse bg-amber-400' : 'bg-rose-500'}`} /><button type="button" onClick={onLogOut} className="icon-command" title="Выйти"><LogOut size={18} /></button></div><div className="mx-auto hidden max-w-5xl grid-cols-4 px-5 sm:grid">{nav.map(([id, label, Icon]) => <button key={id} type="button" onClick={() => setView(id)} className={`flex min-h-12 items-center justify-center gap-2 border-b-2 text-sm font-black ${view === id ? 'border-[#0d8b71] text-[#0d735f]' : 'border-transparent text-slate-500'}`}><Icon size={17} />{label}</button>)}</div></header>
+    <header className="sticky top-0 z-40 border-b border-[#cfe0dc] bg-white/95 backdrop-blur-xl"><div className="mx-auto flex min-h-16 max-w-5xl items-center gap-3 px-3 sm:px-5"><button type="button" onClick={() => setView('today')} className="grid h-10 w-10 place-items-center bg-[#0d8b71] font-black text-white rounded-md">{duration}</button><div className="min-w-0 flex-1"><div className="flex justify-between text-xs font-black text-slate-500"><span>День {currentIndex + 1} из {duration}</span><span>{Math.round((currentIndex + 1) / duration * 100)}%</span></div><div className="mt-1 h-2 overflow-hidden bg-[#dfeae7] rounded-sm"><motion.div className="h-full bg-[#17a77f]" animate={{ width: `${(currentIndex + 1) / duration * 100}%` }} /></div></div><span className={`h-2.5 w-2.5 rounded-full ${syncState === 'synced' ? 'bg-emerald-500' : syncState === 'saving' ? 'animate-pulse bg-amber-400' : 'bg-rose-500'}`} />{state.profile?.photoUrl || user.photoURL ? <img src={state.profile?.photoUrl || user.photoURL} alt={state.profile?.displayName || user.displayName || 'Аватар'} className="h-10 w-10 shrink-0 border border-[#cfe0dc] bg-[#dfeae7] object-cover rounded-md" /> : <span className="grid h-10 w-10 shrink-0 place-items-center bg-[#dfeae7] font-black text-[#0d735f] rounded-md">{(state.profile?.displayName || user.displayName || user.email || 'Я').trim().charAt(0).toUpperCase()}</span>}<button type="button" onClick={onLogOut} className="icon-command" title="Выйти"><LogOut size={18} /></button></div><div className="mx-auto hidden max-w-5xl grid-cols-4 px-5 sm:grid">{nav.map(([id, label, Icon]) => <button key={id} type="button" onClick={() => setView(id)} className={`flex min-h-12 items-center justify-center gap-2 border-b-2 text-sm font-black ${view === id ? 'border-[#0d8b71] text-[#0d735f]' : 'border-transparent text-slate-500'}`}><Icon size={17} />{label}</button>)}</div></header>
 
     <main className="mx-auto grid max-w-5xl gap-4 px-3 py-4 sm:px-5">
       {view === 'today' && <>
         <button type="button" onClick={() => setShowDays((value) => !value)} className="border border-[#cfe0dc] bg-white p-4 text-left shadow-sm rounded-lg"><div className="flex items-center justify-between"><span className="flex items-center gap-2 font-black"><CalendarDays size={19} className="text-[#0d8b71]" />Карта марафона</span><ChevronDown size={18} className={showDays ? 'rotate-180' : ''} /></div><div className="mt-1 text-xs font-bold text-slate-500">{stats.credited.length} дней с результатом · {stats.completionRate}% пути закрыто</div></button>
-        {showDays && <DayGrid state={state} currentIndex={currentIndex} />}
+        {showDays && <DayGrid state={state} currentIndex={currentIndex} onSelect={setDayPreviewIndex} />}
         <section className="border border-[#b9ddd3] bg-[#eaf8f4] p-4 rounded-lg"><div className="text-xs font-black uppercase text-[#0d735f]">{formatLongDate(day.date)}</div><h1 className="mt-1 text-2xl font-black">Сегодняшние доказательства</h1><p className="mt-2 text-sm font-semibold leading-6 text-slate-600">Честная отметка сильнее идеальной картинки. Один день не определяет тебя, но каждый выбор оставляет след.</p></section>
         <CodexPanel state={state} day={day} editable={editable} commit={commit} onDayChange={updateDay} />
         <BodyMetrics day={day} profile={state.profile} editable={editable} onChange={updateDay} />
@@ -101,6 +110,7 @@ export default function MemberApp({ user, state, commit, currentDate, syncState,
     </main>
     <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-[#cfe0dc] bg-white/95 p-2 backdrop-blur sm:hidden">{nav.map(([id, label, Icon]) => <button key={id} type="button" onClick={() => setView(id)} className={`flex min-h-13 flex-col items-center justify-center gap-1 text-[11px] font-black rounded-md ${view === id ? 'bg-[#e4f6f0] text-[#0d735f]' : 'text-slate-500'}`}><Icon size={20} />{label}</button>)}</nav>
     {confirmClose && <Confirm title="Закрыть день?" text={`Будет зафиксирован результат «${evaluation.title}» — ${evaluation.score}%. После этого данные дня нельзя изменить.`} onConfirm={closeDay} onClose={() => setConfirmClose(false)} />}
+    {dayPreviewIndex !== null && <DayDetailsModal state={state} dayIndex={dayPreviewIndex} onClose={() => setDayPreviewIndex(null)} />}
   </div>;
 }
 
@@ -112,8 +122,8 @@ function BodyMetrics({ day, profile, editable, onChange }) {
 
 function Metric({ label, icon, value, disabled, onChange, step = '1' }) { return <label className="border border-[#d7e5e1] bg-[#f5faf8] p-3 rounded-md"><span className="flex items-center gap-1 text-xs font-black text-slate-500">{icon}{label}</span><input type="number" min="0" step={step} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className="mt-2 w-full bg-transparent text-xl font-black outline-none" /></label>; }
 
-function DayGrid({ state, currentIndex }) {
-  return <section className="border border-[#cfe0dc] bg-white p-3 rounded-lg"><div className="grid grid-cols-6 gap-2 sm:grid-cols-10">{state.days.map((day, index) => { const result = index <= currentIndex ? getDayResult(day, state.goals, state.dayCriteria, state.resultThresholds, state.codexRules) : null; const future = index > currentIndex; return <div key={day.day} title={`День ${day.day} · ${formatLongDate(day.date)}`} className={`grid min-h-14 place-items-center border text-center rounded-md ${future ? 'border-slate-200 bg-slate-50 text-slate-400' : result ? 'text-white' : hasDayData(day) ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`} style={result ? { backgroundColor: result.color, borderColor: result.color } : undefined}><span><strong className="block">{day.day}</strong><small className="text-[9px] font-bold">{formatShortDate(day.date)}</small></span></div>; })}</div></section>;
+function DayGrid({ state, currentIndex, onSelect }) {
+  return <section className="border border-[#cfe0dc] bg-white p-3 rounded-lg"><div className="grid grid-cols-6 gap-2 sm:grid-cols-10">{state.days.map((day, index) => { const result = index <= currentIndex ? getDayResult(day, state.goals, state.dayCriteria, state.resultThresholds, state.codexRules) : null; const future = index > currentIndex; return <button type="button" disabled={future} onClick={() => onSelect(index)} key={day.day} title={`${future ? '' : 'Открыть: '}день ${day.day} · ${formatLongDate(day.date)}`} className={`grid min-h-14 place-items-center border text-center transition rounded-md ${future ? 'cursor-default border-slate-200 bg-slate-50 text-slate-400' : result ? 'text-white hover:brightness-95' : hasDayData(day) ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100' : 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'}`} style={result ? { backgroundColor: result.color, borderColor: result.color } : undefined}><span><strong className="block">{day.day}</strong><small className="text-[9px] font-bold">{formatShortDate(day.date)}</small></span></button>; })}</div><p className="mt-3 text-center text-xs font-bold text-slate-400">Нажми на прошедший день, чтобы открыть его показатели</p></section>;
 }
 
 function MemberProgress({ state, stats, range, onRange, commit }) {
@@ -130,7 +140,7 @@ function MemberProfile({ user, state, commit }) {
   const [log, setLog] = useState({ date: todayKey(), weight: '', waist: '', chest: '', hips: '', arm: '', thigh: '', photoUrl: '' });
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
-  const saveProfile = () => commit((current, now) => ({ ...current, profile: { ...current.profile, ...draft, updatedAt: now }, dayCriteria: current.dayCriteria.map((item) => item.field === 'activeCalories' ? { ...item, active: Boolean(draft.trackActiveCalories), required: Boolean(draft.trackActiveCalories) } : item), codexRules: current.codexRules.map((rule) => rule.id === 'member-calories' ? { ...rule, target: Math.max(1, numberOr(draft.calorieTarget, 1850)), title: `Калории не больше ${Math.max(1, numberOr(draft.calorieTarget, 1850))}`, updatedAt: now } : rule) }));
+  const saveProfile = () => commit((current, now) => ({ ...current, profile: { ...current.profile, ...draft, updatedAt: now }, dayCriteria: current.dayCriteria.map((item) => item.field === 'activeCalories' ? { ...item, active: Boolean(draft.trackActiveCalories), required: Boolean(draft.trackActiveCalories) } : item), codexRules: current.codexRules.map((rule) => rule.id === 'nutrition-1850' ? { ...rule, target: Math.max(1, numberOr(draft.calorieTarget, 1850)), title: `Калории не больше ${Math.max(1, numberOr(draft.calorieTarget, 1850))}`, updatedAt: now } : rule) }));
   const addLog = () => commit((current, now) => ({ ...current, bodyLogs: [...(current.bodyLogs || []), { ...log, id: createId('body-log'), createdAt: now, updatedAt: now }], profile: { ...current.profile, ...(log.weight ? { currentWeight: log.weight } : {}) } }));
   const upload = async (file) => { if (!file) return; setUploading(true); setUploadError(''); try { let photoUrl; try { photoUrl = await uploadLifeImage(user.uid, 'progress', file); } catch { photoUrl = await compressImageDataUrl(file); } setLog((current) => ({ ...current, photoUrl })); } catch { setUploadError('Не удалось подготовить фото. Максимальный размер файла — 12 МБ.'); } finally { setUploading(false); } };
   const uploadAvatar = async (file) => { if (!file) return; setUploading(true); setUploadError(''); try { let photoUrl; try { photoUrl = await uploadLifeImage(user.uid, 'avatar', file); } catch { photoUrl = await compressImageDataUrl(file, 360, 0.7); } setDraft((current) => ({ ...current, photoUrl })); } catch { setUploadError('Не удалось подготовить фото. Максимальный размер файла — 12 МБ.'); } finally { setUploading(false); } };

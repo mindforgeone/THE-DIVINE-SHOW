@@ -50,6 +50,7 @@ cloud.fail = (code) => { for (const item of [...subscribers]) if (isCurrent(item
 export const doc = (_db, ...parts) => parts.join('/');
 export const getFirestore = () => ({});
 export const serverTimestamp = () => new Date().toISOString();
+export const setDoc = async () => {};
 export const onSnapshot = (path, _options, callback, onError) => {
   if (!isSteps(path)) cloud.subscriptions++;
   const item = { path, callback, onError }; subscribers.add(item);
