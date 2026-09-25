@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { roleForUser } from '../auth/roles';
@@ -29,11 +29,11 @@ export function buildPublicProfile(user, privateState) {
     totalSteps: profile.shareProgress !== false ? stats?.steps?.reduce((sum, item) => sum + item.value, 0) || 0 : null,
     currentWeight: profile.shareWeight ? latestWeight || null : null,
     weightDelta: profile.shareWeight ? stats?.weightDelta || 0 : null,
-    updatedAtClient: new Date().toISOString(),
   };
 }
 
 export function usePublicProfileSync(user, privateState) {
+  const lastSent = useRef('');
   const publicProfile = useMemo(
     () => user && privateState !== undefined ? buildPublicProfile(user, privateState) : null,
     [privateState, user],
@@ -41,11 +41,16 @@ export function usePublicProfileSync(user, privateState) {
 
   useEffect(() => {
     if (!db || !publicProfile?.uid) return undefined;
-    setDoc(
-      doc(db, 'publicProfiles', publicProfile.uid),
-      { ...publicProfile, updatedAt: serverTimestamp() },
-      { merge: true },
-    ).catch(() => {});
-    return undefined;
+    const signature = JSON.stringify(publicProfile);
+    if (signature === lastSent.current) return undefined;
+    const timer = window.setTimeout(() => {
+      lastSent.current = signature;
+      setDoc(
+        doc(db, 'publicProfiles', publicProfile.uid),
+        { ...publicProfile, updatedAtClient: new Date().toISOString(), updatedAt: serverTimestamp() },
+        { merge: true },
+      ).catch(() => {});
+    }, 800);
+    return () => window.clearTimeout(timer);
   }, [publicProfile]);
 }

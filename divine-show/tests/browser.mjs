@@ -68,7 +68,7 @@ async function setup(context, user = owner) {
     if (request.type === 'get') return route.fulfill({ contentType: 'application/json', body: JSON.stringify(cloud.get(request.path) || null) });
     for (const op of request.operations) {
       if (op.type === 'delete') cloud.delete(op.path);
-      else { cloud.set(op.path, op.merge ? { ...cloud.get(op.path), ...op.value } : op.value); writes++; }
+      else { cloud.set(op.path, op.merge ? { ...cloud.get(op.path), ...op.value } : op.value); if (op.path.includes('/trackers/')) writes++; }
     }
     return route.fulfill({ contentType: 'application/json', body: '{}' });
   });
