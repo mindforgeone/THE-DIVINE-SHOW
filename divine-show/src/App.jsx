@@ -25,6 +25,7 @@ import {
   Menu,
   Plus,
   Route,
+  RotateCcw,
   Save,
   Scale,
   Settings2,
@@ -93,7 +94,7 @@ function AccountApp({ authSession }) {
   const { user, loading: authLoading, signingIn, error: authError, signIn } = authSession;
   const role = roleForUser(user);
   const adminUser = role === 'admin' ? user : null;
-  const { state, history, ready: cloudReady, syncState, error: storageError, starting, currentDate, start, startNext, commit, retry } = useMarathonStore(user);
+  const { state, history, ready: cloudReady, syncState, error: storageError, starting, currentDate, start, startNext, resetJourney, commit, retry } = useMarathonStore(user);
   usePublicProfileSync(user, cloudReady ? state : undefined);
   const stepsStore = useStepsStore(cloudReady && state?.contractAcceptedAt ? adminUser : null);
   const lifeStore = useLifeStore(cloudReady && state?.contractAcceptedAt ? adminUser : null);
@@ -109,6 +110,8 @@ function AccountApp({ authSession }) {
   const [showExport, setShowExport] = useState(false);
   const [celebration, setCelebration] = useState(null);
   const [dayPreviewIndex, setDayPreviewIndex] = useState(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const startJourney = async (commitments, durationDays) => {
     if (await start(commitments, durationDays)) {
@@ -122,7 +125,7 @@ function AccountApp({ authSession }) {
   if (!cloudReady) return <LoadingScreen key={user.uid} text="Загружаю историю" error={storageError} onRetry={retry} onLogOut={() => signOut(auth)} />;
   if (!state?.contractAcceptedAt) return <StartScreen member={role !== 'admin'} history={history} onStart={startJourney} starting={starting} error={storageError} onRetry={retry} onLogOut={() => signOut(auth)} />;
   if (state.completedAt) return <FinishedJourney summary={state.completionSummary || buildMarathonSummary(state)} history={history} onStartNext={startNext} onLogOut={() => signOut(auth)} />;
-  if (role !== 'admin') return <MemberApp user={user} state={state} commit={commit} currentDate={currentDate} syncState={syncState} onLogOut={() => signOut(auth)} />;
+  if (role !== 'admin') return <MemberApp user={user} state={state} commit={commit} currentDate={currentDate} syncState={syncState} onReset={resetJourney} onLogOut={() => signOut(auth)} />;
 
   const durationDays = state.durationDays || TOTAL_DAYS;
   const currentDayIndex = getCurrentDayIndex(state.startDate, currentDate, durationDays);
@@ -248,6 +251,7 @@ function AccountApp({ authSession }) {
 
   const updateProfile = (patch) => mutateState((previous) => ({ ...previous, profile: { ...previous.profile, ...patch } }));
   const updateScoring = (patch) => mutateState((previous) => ({ ...previous, ...patch }));
+  const resetCurrentJourney = async () => { setResetting(true); const succeeded = await resetJourney(); setResetting(false); if (!succeeded) setConfirmReset(false); };
 
   return (
     <div className="min-h-screen bg-[#f4f7f8] text-[#102a43]">
@@ -261,6 +265,7 @@ function AccountApp({ authSession }) {
         view={view}
         onView={setView}
         onExport={() => setShowExport(true)}
+        onReset={() => setConfirmReset(true)}
         onLogOut={() => signOut(auth)}
       />
 
@@ -346,6 +351,7 @@ function AccountApp({ authSession }) {
         {showExport && <ExportModal key="export" data={exportData} totalDays={durationDays} onClose={() => setShowExport(false)} />}
         {celebration && <Celebration key="celebration" result={celebration} />}
         {dayPreviewIndex !== null && <DayDetailsModal key="day-details" state={state} dayIndex={dayPreviewIndex} onClose={() => setDayPreviewIndex(null)} />}
+        {confirmReset && <ConfirmReset key="reset-journey" resetting={resetting} onConfirm={resetCurrentJourney} onClose={() => setConfirmReset(false)} />}
       </AnimatePresence>
     </div>
   );
@@ -377,7 +383,7 @@ function LoginScreen({ onSignIn, signingIn, error }) {
   return (
     <div className="grid min-h-screen place-items-center bg-[#f4f7f8] p-4">
       <section className="w-full max-w-lg border border-[#dbe5e9] bg-white p-6 shadow-sm rounded-lg">
-        <div className="text-sm font-black uppercase tracking-wide text-[#0d8fb9]">Марафон перемен</div>
+        <div className="text-sm font-black uppercase tracking-wide text-[#0d8fb9]">Day One</div>
         <h1 className="mt-3 text-4xl font-black leading-tight">Один путь. Все данные на месте.</h1>
         <p className="mt-4 font-semibold leading-7 text-slate-600">Твой марафон, на телефоне и компьютере.</p>
         <button type="button" onClick={onSignIn} disabled={signingIn} aria-busy={signingIn} className="mt-6 inline-flex min-h-[50px] w-full items-center justify-center gap-2 bg-[#102a43] px-5 font-black text-white disabled:cursor-wait disabled:opacity-70 rounded-md">{signingIn ? <Loader2 size={18} className="animate-spin" /> : <LogIn size={18} />}{signingIn ? 'Ожидаю Google…' : 'Войти через Google'}</button>
@@ -419,7 +425,7 @@ function StartScreen({ member = false, history, onStart, starting, error, onRetr
           <div className="mt-3 grid grid-cols-3 gap-2">{MARATHON_DURATIONS.map((duration) => <button key={duration} type="button" onClick={() => setDurationDays(duration)} aria-pressed={durationDays === duration} className={`min-h-[52px] border px-3 font-black rounded-md ${durationDays === duration ? 'border-[#0d8fb9] bg-[#0d8fb9] text-white' : 'border-[#d8e3e7] bg-[#f7f9fa] text-slate-600'}`}>{duration} дней</button>)}</div>
         </section>
         <div className="flex items-center justify-between gap-3"><h2 className="text-2xl font-black">{member ? 'Правила пути' : 'Мои аскезы'}</h2><span className="shrink-0 text-sm font-bold text-[#16865f]">{acceptedCount} из {commitments.length}</span></div>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{member ? `Перед стартом я принимаю понятные правила на ${durationDays} дней. Конкретные ежедневные цели можно будет настроить в своём Кодексе.` : `Аскеза — добровольная практика самодисциплины ради выбранной цели. Здесь я принимаю конкретные обязательства на ${durationDays} календарных дней.`}</p>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{member ? `Перед стартом я принимаю понятные правила на ${durationDays} дней. Конкретные ежедневные цели можно будет настроить в своих правилах дня.` : `Аскеза — добровольная практика самодисциплины ради выбранной цели. Здесь я принимаю конкретные обязательства на ${durationDays} календарных дней.`}</p>
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           {commitments.map((item, index) => <label key={item.id} className={`flex cursor-pointer items-start gap-3 border p-4 transition-colors rounded-lg ${checked[item.id] ? 'border-[#8dd6ad] bg-[#ecfbf3]' : 'border-[#d8e3e7] bg-white'}`}><input type="checkbox" aria-label={item.title} checked={Boolean(checked[item.id])} onChange={(event) => setChecked({ ...checked, [item.id]: event.target.checked })} className="mt-1 h-5 w-5 shrink-0 accent-[#16a36a]" /><span className="min-w-0"><span className="text-xs font-bold text-[#0d8fb9]">0{index + 1} · {item.metric}</span><strong className="mt-1 block text-base leading-6">{item.title}</strong><span className="mt-2 block text-sm leading-6 text-slate-600">{item.text}</span></span></label>)}
         </div>
@@ -473,7 +479,7 @@ function CommitmentSummary({ commitments, totalDays }) {
   return <details className="border-y border-[#d8e3e7] py-3"><summary className="flex cursor-pointer items-center justify-between gap-3 text-sm font-bold text-[#16865f]"><span className="flex items-center gap-2"><Heart size={17} />Мой выбор на {totalDays} дней</span><ChevronDown size={17} /></summary><p className="mt-3 font-semibold leading-6">{commitments.purpose}</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{commitments.items.map((item) => <div key={item.id}><h3 className="text-sm font-bold">{item.title}</h3><p className="mt-1 text-sm leading-6 text-slate-600">{item.text}</p></div>)}</div></details>;
 }
 
-function CompactHeader({ user, avatarUrl, currentDay, totalDays, progress, syncState, view, onView, onExport, onLogOut }) {
+function CompactHeader({ user, avatarUrl, currentDay, totalDays, progress, syncState, view, onView, onExport, onReset, onLogOut }) {
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <header className="sticky top-0 z-40 border-b border-[#d9e4e8] bg-white/95 backdrop-blur-xl">
@@ -494,7 +500,7 @@ function CompactHeader({ user, avatarUrl, currentDay, totalDays, progress, syncS
         {avatarUrl ? <img src={avatarUrl} alt={user.displayName || 'Аватар'} className="h-10 w-10 shrink-0 border border-[#d9e4e8] bg-[#edf4f6] object-cover rounded-md" title={user.displayName || user.email || 'Профиль'} /> : <span className="grid h-10 w-10 shrink-0 place-items-center bg-[#eaf8fd] font-black text-[#0d7ea5] rounded-md" title={user.email || 'Профиль'}>{(user.displayName || user.email || 'Я').trim().charAt(0).toUpperCase()}</span>}
         <div className="relative">
           <button type="button" onClick={() => setMenuOpen((value) => !value)} className="grid h-10 w-10 place-items-center border border-[#d9e4e8] bg-white text-slate-700 rounded-md" title="Меню"><Menu size={19} /></button>
-          <AnimatePresence>{menuOpen && <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="absolute right-0 top-12 z-50 w-52 border border-[#d9e4e8] bg-white p-2 shadow-xl rounded-lg"><MenuItem icon={<Download size={16} />} label="Экспорт" onClick={() => { onExport(); setMenuOpen(false); }} /><MenuItem icon={<LogOut size={16} />} label="Выйти" onClick={onLogOut} /></motion.div>}</AnimatePresence>
+          <AnimatePresence>{menuOpen && <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="absolute right-0 top-12 z-50 w-56 border border-[#d9e4e8] bg-white p-2 shadow-xl rounded-lg"><MenuItem icon={<Download size={16} />} label="Экспорт" onClick={() => { onExport(); setMenuOpen(false); }} /><MenuItem icon={<RotateCcw size={16} />} label="Сбросить маршрут" onClick={() => { onReset(); setMenuOpen(false); }} danger /><MenuItem icon={<LogOut size={16} />} label="Выйти" onClick={onLogOut} /></motion.div>}</AnimatePresence>
         </div>
       </div>
     </header>
@@ -505,8 +511,8 @@ function NavButton({ active, icon, label, onClick }) {
   return <button type="button" onClick={onClick} className={`inline-flex min-h-[40px] items-center gap-2 px-3 text-sm font-black rounded-md ${active ? 'bg-[#102a43] text-white' : 'text-slate-600 hover:bg-[#f1f5f7]'}`}>{icon}{label}</button>;
 }
 
-function MenuItem({ icon, label, onClick }) {
-  return <button type="button" onClick={onClick} className="flex min-h-[42px] w-full items-center gap-3 px-3 text-left text-sm font-black text-slate-700 hover:bg-[#f1f5f7] rounded-md">{icon}{label}</button>;
+function MenuItem({ icon, label, danger = false, onClick }) {
+  return <button type="button" onClick={onClick} className={`flex min-h-[42px] w-full items-center gap-3 px-3 text-left text-sm font-black hover:bg-[#f1f5f7] rounded-md ${danger ? 'text-rose-600' : 'text-slate-700'}`}>{icon}{label}</button>;
 }
 
 function MobileNav({ view, onView }) {
@@ -818,6 +824,10 @@ function ConfirmCareer({ choice, onConfirm, onClose }) {
 function ConfirmClose({ evaluation, weeklyRequired, finalRequired, onConfirm, onClose }) {
   const missing = weeklyRequired ? 'Недельный итог ещё не заполнен.' : finalRequired ? 'Финальный итог пути ещё не заполнен.' : '';
   return <SimpleConfirm title="Закрыть день навсегда?" text={missing || `День получит результат «${evaluation.title}», ${evaluation.score}% и ${evaluation.xp} очков. После этого редактирование невозможно.`} confirm="Да, закрыть" disabled={weeklyRequired || finalRequired || !evaluation.canClose} onConfirm={onConfirm} onClose={onClose} />;
+}
+
+function ConfirmReset({ resetting, onConfirm, onClose }) {
+  return <ModalShell title="Сбросить текущий маршрут?" onClose={resetting ? undefined : onClose}><div className="flex items-start gap-3 border border-rose-200 bg-rose-50 p-3 rounded-md"><AlertCircle size={20} className="mt-0.5 shrink-0 text-rose-600" /><p className="text-sm font-bold leading-6 text-rose-900">Все дни, отметки, замеры и фотографии текущего марафона будут удалены. После сброса откроется стартовый экран. Отменить это действие нельзя.</p></div><div className="mt-5 grid grid-cols-2 gap-2"><button type="button" disabled={resetting} onClick={onClose} className="min-h-[48px] border border-[#d8e3e7] bg-white font-black text-slate-600 disabled:opacity-50 rounded-md">Оставить маршрут</button><button type="button" disabled={resetting} onClick={onConfirm} className="inline-flex min-h-[48px] items-center justify-center gap-2 bg-rose-600 font-black text-white disabled:bg-rose-300 rounded-md">{resetting ? <Loader2 size={18} className="animate-spin" /> : <RotateCcw size={18} />}Да, сбросить</button></div></ModalShell>;
 }
 
 function SimpleConfirm({ title, text, confirm, disabled = false, onConfirm, onClose }) {

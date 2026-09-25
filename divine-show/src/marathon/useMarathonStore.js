@@ -135,6 +135,22 @@ export function useMarathonStore(user) {
       return true;
     };
 
+    session.resetJourney = async () => {
+      if (!session.alive || !session.writable) return false;
+      const resetAtClient = new Date().toISOString();
+      const resetGeneration = `manual-${uid}-${resetAtClient}`;
+      const documentRef = doc(db, 'users', uid, 'trackers', session.storage.documentId);
+      await runTransaction(db, async (transaction) => {
+        transaction.set(documentRef, { state: null, resetGeneration, resetAtClient, updatedAt: serverTimestamp() }, { merge: true });
+      });
+      if (!session.alive) return false;
+      session.remoteJson = 'null';
+      publish(null);
+      setSyncState('synced');
+      setError('');
+      return true;
+    };
+
     const connectionFailed = (failure) => {
       if (!session.alive) return;
       session.writable = false;
@@ -184,11 +200,13 @@ export function useMarathonStore(user) {
         session.listening = true;
         session.unsubscribe = onSnapshot(documentRef, { includeMetadataChanges: true }, (snapshot) => {
           if (!session.alive) return;
-          const remote = snapshot.exists() ? snapshot.data().state : null;
+          const documentData = snapshot.exists() ? snapshot.data() : null;
+          const remote = documentData?.state || null;
           if (!snapshot.metadata.hasPendingWrites) session.remoteJson = JSON.stringify(remote);
           session.writable = !snapshot.metadata.fromCache || session.writable;
           if (!snapshot.metadata.fromCache) setError('');
-          publish(finalizePastDays(mergeStates(remote, session.state)));
+          const resetIsAuthoritative = !remote && Boolean(documentData?.resetGeneration);
+          publish(resetIsAuthoritative ? null : finalizePastDays(mergeStates(remote, session.state)));
           setReady(session.writable || Boolean(session.state));
           setSyncState(snapshot.metadata.fromCache ? 'offline' : snapshot.metadata.hasPendingWrites || JSON.stringify(session.state) !== session.remoteJson ? 'saving' : 'synced');
           if (session.writable) schedule();
@@ -249,6 +267,17 @@ export function useMarathonStore(user) {
     }
   };
 
+  const resetJourney = async () => {
+    try {
+      const reset = await sessionRef.current?.resetJourney();
+      if (!reset) setError('Сброс не подтверждён облаком. Проверь подключение и повтори.');
+      return Boolean(reset);
+    } catch {
+      setError('Не удалось сбросить маршрут. Данные не изменены, попробуй ещё раз.');
+      return false;
+    }
+  };
+
   const belongsToUser = user?.uid === ownerUid;
-  return { state: belongsToUser ? state : null, history: belongsToUser ? history : [], ready: ready && belongsToUser, syncState, error, starting, currentDate, start, startNext: () => sessionRef.current?.startNext(), commit: (recipe) => sessionRef.current?.commit(recipe), retry: () => sessionRef.current?.retry() };
+  return { state: belongsToUser ? state : null, history: belongsToUser ? history : [], ready: ready && belongsToUser, syncState, error, starting, currentDate, start, startNext: () => sessionRef.current?.startNext(), resetJourney, commit: (recipe) => sessionRef.current?.commit(recipe), retry: () => sessionRef.current?.retry() };
 }

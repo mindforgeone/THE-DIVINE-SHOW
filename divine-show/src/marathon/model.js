@@ -521,7 +521,7 @@ export function evaluateDay(day, goals, criteria = DEFAULT_DAY_CRITERIA, thresho
   const criteriaShare = useCodex ? 40 : 60;
   const score = Math.min(100, Math.round(dailyScore + (criteriaWeight ? criteriaScore / criteriaWeight * criteriaShare : criteriaShare) + Math.min(10, actionCount * 5 + courageCount * 5)));
   const blockers = [];
-  if (!allDailyAnswered) blockers.push(useCodex ? `Отметь правила Кодекса (${codexState.filter((item) => item.answered).length}/${codexState.filter((item) => item.rule.required !== false).length})` : `Отметь ежедневные цели (${answered.length}/${dailyBinary.length})`);
+  if (!allDailyAnswered) blockers.push(useCodex ? `Отметь правила дня (${codexState.filter((item) => item.answered).length}/${codexState.filter((item) => item.rule.required !== false).length})` : `Отметь ежедневные цели (${answered.length}/${dailyBinary.length})`);
   criterionState.filter((item) => item.criterion.required && !item.answered).forEach((item) => blockers.push(`Заполни: ${item.criterion.label}`));
   if (evidenceRequired && !evidenceComplete) blockers.push('Запиши победу дня');
   if (!actionsComplete) blockers.push('Заверши или удали добавленный факт действия');
@@ -759,7 +759,7 @@ export function buildExport(state, stats) {
   const dayLines = state.days.filter(hasDayData).map((day) => {
     const result = getDayResult(day, state.goals, state.dayCriteria, state.resultThresholds, state.codexRules);
     const codex = (state.codexRules || []).filter((rule) => rule.scoreEnabled !== false && (!rule.startDate || rule.startDate <= day.date) && (!rule.endDate || rule.endDate >= day.date)).map((rule) => `${rule.title}: ${evaluateCodexRule(day, rule).passed ? 'да' : evaluateCodexRule(day, rule).answered ? 'нет' : '-'}`).join('; ');
-    return `- День ${day.day} (${day.date}): ${result?.title || 'Заполнен частично'}, ${result?.score ?? day.score}%, ${result?.xp || 0} очков, ${day.closureMode === 'automatic' ? 'закрыт автоматически' : day.result ? 'закрыт вручную' : 'сохранён'}, вес ${day.weight || '-'}, калории ${day.calories || '-'}, активные ${day.activeCalories || '-'}, шаги ${day.steps || '-'}, Кодекс [${codex}], победа дня: ${day.evidence || '-'}, действия: ${(day.actions || []).map((action) => action.text).join('; ') || '-'}, ситуации: ${(day.courageMoments || []).map((moment) => `${moment.situation} ${moment.before}->${moment.after}`).join('; ') || '-'}`;
+    return `- День ${day.day} (${day.date}): ${result?.title || 'Заполнен частично'}, ${result?.score ?? day.score}%, ${result?.xp || 0} очков, ${day.closureMode === 'automatic' ? 'закрыт автоматически' : day.result ? 'закрыт вручную' : 'сохранён'}, вес ${day.weight || '-'}, калории ${day.calories || '-'}, активные ${day.activeCalories || '-'}, шаги ${day.steps || '-'}, правила дня [${codex}], победа дня: ${day.evidence || '-'}, действия: ${(day.actions || []).map((action) => action.text).join('; ') || '-'}, ситуации: ${(day.courageMoments || []).map((moment) => `${moment.situation} ${moment.before}->${moment.after}`).join('; ') || '-'}`;
   });
   const markdown = [
     `# Марафон ${state.durationDays || state.days.length} дней`,
@@ -774,7 +774,7 @@ export function buildExport(state, stats) {
     `Средний энергобаланс: ${stats.avgBalance} ккал`,
     `Карьерное решение: ${state.careerDecision.status}`,
     '',
-    '## Мой кодекс',
+    '## Правила дня',
     ...codexLines,
     `Рефлексия заполнена: ${stats.reflections.length}/${stats.recorded.length} дней (${stats.reflectionRate}%)`,
     '',

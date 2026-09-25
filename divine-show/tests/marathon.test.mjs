@@ -34,18 +34,18 @@ test('all commitments and a personal purpose must be explicitly accepted', () =>
   assert.match(commitmentsForDuration(90)[4].metric, /90/);
 });
 
-test('reset isolates only the requested account and preserves other account paths', async () => {
+test('admin and member accounts use isolated reset generations', async () => {
   const expectedHash = createHash('sha256').update('owner@example.test').digest('hex');
   const owner = await resolveAccountStorage({ email: ' OWNER@example.test ' }, expectedHash);
   const other = await resolveAccountStorage({ email: 'other@example.test' });
   assert.equal(owner.resetRequested, true);
   assert.ok(owner.oldDocumentIds.includes('marathon120-v9'));
   assert.equal(other.resetRequested, false);
-  assert.equal(other.documentId, 'marathon120-v9');
+  assert.equal(other.documentId, 'marathon-member-v12');
   assert.notEqual(owner.cacheNamespace, other.cacheNamespace);
   const clearedMember = await resolveAccountStorage({ email: 'mindforge.one@gmail.com' });
-  assert.equal(clearedMember.resetRequested, true);
-  assert.equal(clearedMember.documentId, 'marathon-member-v10');
+  assert.equal(clearedMember.resetRequested, false);
+  assert.equal(clearedMember.documentId, 'marathon-member-v12');
   assert.ok(clearedMember.oldDocumentIds.includes('marathon120-v9'));
 });
 

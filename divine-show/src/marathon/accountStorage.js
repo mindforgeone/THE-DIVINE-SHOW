@@ -1,27 +1,27 @@
 import { CLOUD_DOCUMENT_ID, LEGACY_DOCUMENT_IDS, STORAGE_KEY, clearLegacyCache } from './model.js';
+import { ADMIN_UID } from '../auth/roles.js';
 
 export const RESET_GENERATION = '2026-09-24-life-platform-v1';
 const REQUESTED_ACCOUNT_HASH = '15fe470ce74dbfd4c6a3cbeca0a7b4ca15bdfceec7b3eebd1157ced908dfb3e9';
-const MEMBER_RESET_ACCOUNT_HASH = '90ba4c6cbb8ce73dc5f463a7c19c90df9bcd47ebe941dce79f64a82da02ec030';
-const MEMBER_RESET_GENERATION = '2026-09-25-member-fresh-start-v1';
+const MEMBER_RESET_GENERATION = '2026-09-25-all-members-fresh-start-v2';
 
-// Only the account that requested the reset moves to a new, isolated history.
+// Admin history stays isolated; every member uses the same clean schema generation.
 export async function resolveAccountStorage(user, requestedAccountHash = REQUESTED_ACCOUNT_HASH) {
   const email = (user.email || '').trim().toLowerCase();
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(email));
   const fingerprint = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-  const ownerReset = fingerprint === requestedAccountHash;
-  const memberReset = requestedAccountHash === REQUESTED_ACCOUNT_HASH && fingerprint === MEMBER_RESET_ACCOUNT_HASH;
-  const resetRequested = ownerReset || memberReset;
+  const ownerReset = user.uid === ADMIN_UID || fingerprint === requestedAccountHash;
+  const memberReset = !ownerReset;
+  const resetRequested = ownerReset;
   return {
-    documentId: ownerReset ? 'marathon-current-v11' : memberReset ? 'marathon-member-v10' : CLOUD_DOCUMENT_ID,
-    cacheNamespace: ownerReset ? 'marathon-current-v11' : memberReset ? 'marathon-member-v10' : STORAGE_KEY,
+    documentId: ownerReset ? 'marathon-current-v11' : 'marathon-member-v12',
+    cacheNamespace: ownerReset ? 'marathon-current-v11' : 'marathon-member-v12',
     resetRequested,
-    generation: ownerReset ? RESET_GENERATION : memberReset ? MEMBER_RESET_GENERATION : null,
+    generation: ownerReset ? RESET_GENERATION : MEMBER_RESET_GENERATION,
     oldDocumentIds: ownerReset
       ? [...LEGACY_DOCUMENT_IDS, CLOUD_DOCUMENT_ID, 'marathon120-20260906', 'steps-v1', 'life-v1', 'marathon-history-v1']
       : memberReset
-        ? [...LEGACY_DOCUMENT_IDS, CLOUD_DOCUMENT_ID, 'marathon120-20260906', 'marathon-history-v1']
+        ? [...LEGACY_DOCUMENT_IDS, CLOUD_DOCUMENT_ID, 'marathon-member-v10', 'marathon120-20260906', 'marathon-history-v1']
         : [],
   };
 }

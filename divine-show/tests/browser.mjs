@@ -108,8 +108,8 @@ try {
   const journeyId = cloud.get(newPath).state.journeyId;
 
   assert.equal(await page.getByText('Цели этого дня', { exact: true }).count(), 0, 'The old duplicate goal system must be gone');
-  await page.getByTitle('Настроить Кодекс').click();
-  const codexDialog = page.getByRole('dialog', { name: 'Настройка Кодекса' });
+  await page.getByTitle('Настроить правила').click();
+  const codexDialog = page.getByRole('dialog', { name: 'Настройка правил' });
   await codexDialog.getByRole('button', { name: 'Новое правило', exact: true }).click();
   await codexDialog.getByLabel('Правило', { exact: true }).fill('Отжиматься каждый день');
   await codexDialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
@@ -310,9 +310,9 @@ try {
   await sameAccountContext.close();
 
   const other = { uid: 'test-other', email: 'other@example.test' };
-  const otherPath = 'users/test-other/trackers/marathon120-v9';
+  const otherPath = 'users/test-other/trackers/marathon-member-v12';
   const otherState = createInitialState('2026-09-06', '2026-09-06T08:00:00Z');
-  cloud.set(otherPath, { state: otherState });
+  cloud.set(otherPath, { state: otherState, resetGeneration: '2026-09-25-all-members-fresh-start-v2' });
   const otherContext = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'Europe/Moscow' });
   await setup(otherContext, other);
   const otherPage = await otherContext.newPage();
@@ -322,7 +322,7 @@ try {
   await otherPage.getByRole('button', { name: '1 06.09', exact: true }).click();
   const memberDayDetails = otherPage.getByRole('dialog', { name: 'День 1', exact: true });
   await memberDayDetails.waitFor();
-  await memberDayDetails.getByText('Мой Кодекс', { exact: true }).waitFor();
+  await memberDayDetails.getByText('Правила дня', { exact: true }).waitFor();
   assert.equal(await memberDayDetails.getByText('Без алкоголя', { exact: true }).count(), 1, 'Member Codex must not duplicate rules');
   assert.equal(await memberDayDetails.getByText('Без World of Tanks', { exact: true }).count(), 0, 'Admin-only rules must not leak into member accounts');
   await otherPage.waitForTimeout(400);
@@ -334,10 +334,16 @@ try {
   await checkWidth(otherPage, 'member mobile today');
   await otherPage.getByRole('button', { name: 'Профиль', exact: true }).last().click();
   await otherPage.getByRole('heading', { name: /other@example.test|Мой профиль/ }).waitFor();
-  await otherPage.getByText('Замеры и фото прогресса', { exact: true }).waitFor();
+  await otherPage.getByRole('heading', { name: 'Новая контрольная точка', exact: true }).waitFor();
   await checkWidth(otherPage, 'member mobile profile');
+  await otherPage.screenshot({ path: join(output, 'member-profile.png'), fullPage: true });
+  await otherPage.getByRole('button', { name: 'Сбросить маршрут', exact: true }).click();
+  const resetDialog = otherPage.getByRole('dialog', { name: 'Сбросить маршрут?', exact: true });
+  await resetDialog.getByRole('button', { name: 'Да, сбросить', exact: true }).click();
+  await otherPage.getByRole('heading', { name: 'Правила пути', exact: true }).waitFor();
+  assert.equal(cloud.get(otherPath).state, null, 'Member reset must remove the current journey');
   await otherContext.close();
-  console.log(JSON.stringify({ passed: true, checks: ['owner-only reset', 'six mandatory commitments', 'required purpose', '120 dates', 'single editable Codex source', 'mobile add opens a step in the steps tab', 'immediate offline save and reload', 'cloud retry', 'live earned result', 'midnight auto-close', 'locked previous day', 'idempotent points', 'no repeated reset', 'step creation and focus', 'repeated executions with frozen points', 'steps statistics and reload', 'same account on another device', 'member account isolated', 'mobile and desktop overflow', 'no page errors', 'no sync write loop'], screenshots: output }, null, 2));
+  console.log(JSON.stringify({ passed: true, checks: ['owner-only reset', 'six mandatory commitments', 'required purpose', '120 dates', 'single editable rules source', 'mobile add opens a step in the steps tab', 'immediate offline save and reload', 'cloud retry', 'live earned result', 'midnight auto-close', 'locked previous day', 'idempotent points', 'no repeated reset', 'step creation and focus', 'repeated executions with frozen points', 'steps statistics and reload', 'same account on another device', 'member account isolated', 'member journey reset', 'mobile and desktop overflow', 'no page errors', 'no sync write loop'], screenshots: output }, null, 2));
 } finally {
   await browser.close();
 }

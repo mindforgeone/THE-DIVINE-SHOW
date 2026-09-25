@@ -12,10 +12,14 @@ export function buildPublicProfile(user, privateState) {
     : 0;
   const stats = privateState?.days ? calculateStats(privateState, currentIndex, 'all') : null;
   const latestWeight = stats?.lastWeight || number(profile.currentWeight);
+  const ruleStats = (stats?.codexStats || []).filter((item) => item.recorded > 0);
+  const rulesKeptRate = ruleStats.length
+    ? Math.round(ruleStats.reduce((sum, item) => sum + item.completionRate, 0) / ruleStats.length)
+    : 0;
 
   return {
     uid: user.uid,
-    displayName: profile.displayName || (role === 'admin' ? 'MindForge' : user.displayName) || user.email?.split('@')[0] || 'Участник',
+    displayName: role === 'admin' ? 'Stopmenlaser' : profile.displayName || user.displayName || user.email?.split('@')[0] || 'Участник',
     role,
     photoUrl: profile.photoUrl || user.photoURL || '',
     bio: profile.bio || '',
@@ -24,9 +28,14 @@ export function buildPublicProfile(user, privateState) {
     shareWeight: Boolean(profile.shareWeight),
     durationDays: privateState?.durationDays || null,
     journeyDay: privateState?.startDate ? currentIndex + 1 : 0,
+    journeyStatus: privateState?.completedAt ? 'completed' : privateState?.contractAcceptedAt ? 'active' : 'not_started',
+    startDate: privateState?.startDate || null,
     completionRate: profile.shareProgress !== false ? stats?.completionRate || 0 : null,
     strongDays: profile.shareProgress !== false ? (stats?.resultCounts?.strong || 0) + (stats?.resultCounts?.expansion || 0) : null,
     totalSteps: profile.shareProgress !== false ? stats?.steps?.reduce((sum, item) => sum + item.value, 0) || 0 : null,
+    avgSteps: profile.shareProgress !== false ? stats?.avgSteps || 0 : null,
+    avgCalories: profile.shareProgress !== false ? stats?.avgCalories || 0 : null,
+    rulesKeptRate: profile.shareProgress !== false ? rulesKeptRate : null,
     currentWeight: profile.shareWeight ? latestWeight || null : null,
     weightDelta: profile.shareWeight ? stats?.weightDelta || 0 : null,
   };
