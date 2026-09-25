@@ -42,6 +42,14 @@ const add = (label, path, method, auth, expectation) => cases.push({
     resource: { data: { state: null } },
   },
 });
+const addCustom = (label, path, method, auth, expectation, currentData, nextData = currentData) => cases.push({
+  label,
+  test: {
+    expectation,
+    request: { path: `/databases/(default)/documents/${path}`, method, auth, resource: { data: nextData } },
+    resource: { data: currentData },
+  },
+});
 
 for (const path of [`users/${owner.uid}`, ...trackerIds.map((id) => `users/${owner.uid}/trackers/${id}`), `users/${owner.uid}/trackers/steps-v1`, `users/${owner.uid}/trackers/life-v1`, `users/${owner.uid}/marathons/example`, `users/${owner.uid}/private/example`, `divine_data/${owner.uid}`]) {
   for (const method of ['get', 'create', 'update', 'delete']) {
@@ -56,6 +64,26 @@ for (const path of [`unrelated/${owner.uid}`]) {
     add(`unmatched path ${method} ${path}`, path, method, { uid: owner.uid }, 'DENY');
   }
 }
+
+addCustom('signed in can discover public profiles', `publicProfiles/${owner.uid}`, 'get', { uid: 'rules-test-other' }, 'ALLOW', { uid: owner.uid, discoverable: true });
+addCustom('owner can publish own profile', `publicProfiles/${owner.uid}`, 'create', { uid: owner.uid }, 'ALLOW', {}, { uid: owner.uid, discoverable: true });
+addCustom('other cannot overwrite public profile', `publicProfiles/${owner.uid}`, 'update', { uid: 'rules-test-other' }, 'DENY', { uid: owner.uid }, { uid: owner.uid, displayName: 'Other' });
+addCustom('signed out cannot discover public profiles', `publicProfiles/${owner.uid}`, 'get', null, 'DENY', { uid: owner.uid, discoverable: true });
+
+const participants = [owner.uid, 'rules-test-friend'];
+addCustom('participant can read friend request', 'friendRequests/example', 'get', { uid: owner.uid }, 'ALLOW', { from: owner.uid, to: 'rules-test-friend', participants, status: 'pending' });
+addCustom('outsider cannot read friend request', 'friendRequests/example', 'get', { uid: 'rules-test-other' }, 'DENY', { from: owner.uid, to: 'rules-test-friend', participants, status: 'pending' });
+addCustom('sender can create friend request', 'friendRequests/example', 'create', { uid: owner.uid }, 'ALLOW', {}, { from: owner.uid, to: 'rules-test-friend', participants, status: 'pending' });
+addCustom('impersonator cannot create friend request', 'friendRequests/example', 'create', { uid: 'rules-test-other' }, 'DENY', {}, { from: owner.uid, to: 'rules-test-friend', participants, status: 'pending' });
+
+for (const [collectionName, listField] of [['friendships', 'members'], ['conversations', 'members'], ['challenges', 'participants']]) {
+  const data = { [listField]: participants, createdBy: owner.uid };
+  addCustom(`participant can read ${collectionName}`, `${collectionName}/example`, 'get', { uid: owner.uid }, 'ALLOW', data);
+  addCustom(`outsider cannot read ${collectionName}`, `${collectionName}/example`, 'get', { uid: 'rules-test-other' }, 'DENY', data);
+  addCustom(`participant can create ${collectionName}`, `${collectionName}/example`, 'create', { uid: owner.uid }, collectionName === 'friendships' ? 'DENY' : 'ALLOW', {}, data);
+}
+addCustom('admin can moderate message', 'conversations/example/messages/message', 'get', { uid: adminUid }, 'ALLOW', { senderId: owner.uid });
+addCustom('signed out cannot read message', 'conversations/example/messages/message', 'get', null, 'DENY', { senderId: owner.uid });
 
 const response = await client.post(`/projects/${project}:test`, {
   source: { files },

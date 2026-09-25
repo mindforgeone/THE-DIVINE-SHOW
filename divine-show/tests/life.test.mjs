@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createInitialState } from '../src/marathon/model.js';
-import { addLifeEvent, calculateCharacter, createLifeState, factualPatterns, mergeLifeStates } from '../src/life/model.js';
+import { addLifeEvent, calculateCharacter, createLifeState, factualPatterns, mergeLifeStates, progressFor } from '../src/life/model.js';
 
 test('life foundation contains editable codex, vectors and professional skill tree', () => {
   const state = createLifeState();
@@ -25,4 +25,10 @@ test('character is derived from evidence and patterns refuse premature conclusio
   const character = calculateCharacter(life, marathon, { executions: [] });
   assert.equal(character.attributes.length, 6);
   assert.match(factualPatterns(marathon)[0].text, /недостаточно данных/i);
+});
+
+test('descending body goal grows from the starting weight toward the lower target', () => {
+  assert.equal(progressFor({ start: 72, current: 72, target: 65 }), 0);
+  assert.equal(progressFor({ start: 72, current: 68.5, target: 65 }), 50);
+  assert.equal(progressFor({ start: 72, current: 65, target: 65 }), 100);
 });

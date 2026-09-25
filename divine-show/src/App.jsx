@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Activity,
@@ -22,17 +22,16 @@ import {
   Lock,
   LogIn,
   LogOut,
-  ListFilter,
   Menu,
   Plus,
   Route,
   Save,
   Scale,
   Settings2,
-  Target,
   Trash2,
   Trophy,
   Utensils,
+  Users,
   X,
   Zap,
 } from 'lucide-react';
@@ -45,8 +44,9 @@ import { useStepsStore } from './steps/useStepsStore';
 import StepsModule from './steps/StepsModule';
 import { useLifeStore } from './life/useLifeStore';
 import CourseModule from './life/CourseModule';
-import { CodexPanel, EventsPanel, FocusActions, PatternsPanel } from './life/LifePanels';
-import { acceptCommitments, commitmentsForDuration } from './marathon/commitments';
+import MemberApp from './member/MemberApp';
+import { CodexPanel, CodexStats, EventsPanel, FocusActions, PatternsPanel } from './life/LifePanels';
+import { acceptCommitments, acceptMemberCommitments, commitmentsForDuration, memberCommitmentsForDuration } from './marathon/commitments';
 import journeyDawn from './assets/journey-dawn.jpg';
 import {
   CALORIE_LIMIT,
@@ -80,6 +80,8 @@ import {
   visibleGoalsForDay,
 } from './marathon/model';
 
+const CommunityModule = lazy(() => import('./community/CommunityModule'));
+
 function App() {
   const authSession = useGoogleAuth();
   return <AccountApp key={authSession.user?.uid || 'signed-out'} authSession={authSession} />;
@@ -89,7 +91,7 @@ function AccountApp({ authSession }) {
   const { user, loading: authLoading, signingIn, error: authError, signIn } = authSession;
   const role = roleForUser(user);
   const adminUser = role === 'admin' ? user : null;
-  const { state, history, ready: cloudReady, syncState, error: storageError, starting, currentDate, start, startNext, commit, retry } = useMarathonStore(adminUser);
+  const { state, history, ready: cloudReady, syncState, error: storageError, starting, currentDate, start, startNext, commit, retry } = useMarathonStore(user);
   const stepsStore = useStepsStore(cloudReady && state?.contractAcceptedAt ? adminUser : null);
   const lifeStore = useLifeStore(cloudReady && state?.contractAcceptedAt ? adminUser : null);
   const [activeDayIndex, setActiveDayIndex] = useState(null);
@@ -113,10 +115,10 @@ function AccountApp({ authSession }) {
 
   if (authLoading) return <LoadingScreen text="Проверяю аккаунт" onRetry={() => window.location.reload()} />;
   if (!user) return <LoginScreen onSignIn={signIn} signingIn={signingIn} error={authError} />;
-  if (role !== 'admin') return <MemberPortal user={user} onLogOut={() => signOut(auth)} />;
   if (!cloudReady) return <LoadingScreen key={user.uid} text="Загружаю историю" error={storageError} onRetry={retry} onLogOut={() => signOut(auth)} />;
-  if (!state?.contractAcceptedAt) return <StartScreen history={history} onStart={startJourney} starting={starting} error={storageError} onRetry={retry} onLogOut={() => signOut(auth)} />;
+  if (!state?.contractAcceptedAt) return <StartScreen member={role !== 'admin'} history={history} onStart={startJourney} starting={starting} error={storageError} onRetry={retry} onLogOut={() => signOut(auth)} />;
   if (state.completedAt) return <FinishedJourney summary={state.completionSummary || buildMarathonSummary(state)} history={history} onStartNext={startNext} onLogOut={() => signOut(auth)} />;
+  if (role !== 'admin') return <MemberApp user={user} state={state} commit={commit} currentDate={currentDate} syncState={syncState} onLogOut={() => signOut(auth)} />;
 
   const durationDays = state.durationDays || TOTAL_DAYS;
   const currentDayIndex = getCurrentDayIndex(state.startDate, currentDate, durationDays);
@@ -125,7 +127,7 @@ function AccountApp({ authSession }) {
   const selectedDay = state.days[selectedIndex];
   const journeyEnded = isJourneyEnded(state.startDate, durationDays);
   const editable = selectedIndex === currentDayIndex && !selectedDay.result && !journeyEnded;
-  const evaluation = selectedDay.result ? { ...DAY_RESULTS[selectedDay.result], score: selectedDay.score, canClose: true, blockers: [] } : evaluateDay(selectedDay, state.goals, state.dayCriteria, state.resultThresholds);
+  const evaluation = selectedDay.result ? { ...DAY_RESULTS[selectedDay.result], score: selectedDay.score, canClose: true, blockers: [] } : evaluateDay(selectedDay, state.goals, state.dayCriteria, state.resultThresholds, state.codexRules);
   const stats = calculateStats(state, currentDayIndex, range);
   const exportData = buildExport(state, stats);
   const completedWeeks = Math.floor(currentDayNumber / 7);
@@ -153,7 +155,7 @@ function AccountApp({ authSession }) {
   };
 
   const closeDay = () => {
-    const fresh = evaluateDay(selectedDay, state.goals, state.dayCriteria, state.resultThresholds);
+    const fresh = evaluateDay(selectedDay, state.goals, state.dayCriteria, state.resultThresholds, state.codexRules);
     if (!editable || !fresh.canClose || weeklyReviewRequired || finalReviewRequired) return;
     mutateState((previous, changedAt) => {
       const next = {
@@ -252,16 +254,16 @@ function AccountApp({ authSession }) {
         syncState={syncState}
         view={view}
         onView={setView}
-        onGoals={() => setGoalEditor({ mode: 'list' })}
         onExport={() => setShowExport(true)}
         onLogOut={() => signOut(auth)}
       />
 
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-3 pb-24 pt-3 sm:px-5 lg:px-7">
         {storageError && <div role="status" className="flex flex-wrap items-center justify-between gap-2 border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 rounded-md"><span>{storageError}</span><button type="button" onClick={retry} className="font-bold underline">Повторить синхронизацию</button></div>}
-        {view !== 'steps' && <JourneyMap
+        {['today', 'stats'].includes(view) && <JourneyMap
           days={state.days}
           goals={state.goals}
+          codexRules={state.codexRules}
           criteria={state.dayCriteria}
           thresholds={state.resultThresholds}
           currentDayIndex={currentDayIndex}
@@ -289,8 +291,8 @@ function AccountApp({ authSession }) {
               finalReview={state.finalReview}
               finalReviewRequired={finalReviewRequired}
               totalDays={durationDays}
-              lifeState={lifeStore.state}
-              lifeCommit={lifeStore.commit}
+              codexState={state}
+              codexCommit={commit}
               onDayChange={updateDay}
               onSave={saveDraft}
               onClose={() => setConfirmClose(true)}
@@ -308,13 +310,14 @@ function AccountApp({ authSession }) {
           <StepsModule {...stepsStore} goals={state.goals} lifeState={lifeStore.state} newStepRequest={newStepRequest} />
         ) : view === 'course' ? (
           <CourseModule user={user} {...lifeStore} marathon={state} steps={stepsStore.state} />
-        ) : (
+        ) : view === 'stats' ? (
           <StatsDashboard
             user={user}
             state={state}
             stats={stats}
             lifeState={lifeStore.state}
             lifeCommit={lifeStore.commit}
+            codexCommit={commit}
             range={range}
             onRange={setRange}
             onEditGoal={(goal) => setGoalEditor({ mode: 'edit', goal })}
@@ -323,7 +326,7 @@ function AccountApp({ authSession }) {
             onScoringChange={updateScoring}
             totalDays={durationDays}
           />
-        )}
+        ) : <Suspense fallback={<div className="p-8 text-center font-black">Открываю пространство друзей…</div>}><CommunityModule user={user} privateState={state} /></Suspense>}
       </div>
 
       <MobileNav view={view} onView={setView} onAdd={() => view === 'steps' ? setNewStepRequest((value) => value + 1) : setTaskEditorOpen(true)} />
@@ -377,29 +380,17 @@ function LoginScreen({ onSignIn, signingIn, error }) {
   );
 }
 
-function MemberPortal({ user, onLogOut }) {
-  return (
-    <div className="grid min-h-screen place-items-center bg-[#f4f7f8] p-4 text-[#102a43]">
-      <section className="w-full max-w-lg border border-[#d8e3e7] bg-white p-6 shadow-sm rounded-lg">
-        <div className="flex items-center justify-between gap-3"><div className="text-sm font-black uppercase tracking-wide text-[#0d8fb9]">Личное пространство</div><button type="button" onClick={onLogOut} className="icon-command" title="Выйти"><LogOut size={18} /></button></div>
-        <h1 className="mt-4 text-3xl font-black leading-tight">Вы вошли как участник</h1>
-        <p className="mt-3 font-semibold leading-7 text-slate-600">Административные данные и экраны скрыты. Для обычных пользователей здесь будет отдельный сценарий старта.</p>
-        <div className="mt-5 border-t border-[#e1e9ec] pt-4 text-sm font-bold text-slate-500">{user.displayName || 'Аккаунт Google'}</div>
-      </section>
-    </div>
-  );
-}
-
-function StartScreen({ history, onStart, starting, error, onRetry, onLogOut }) {
+function StartScreen({ member = false, history, onStart, starting, error, onRetry, onLogOut }) {
   const [checked, setChecked] = useState({});
   const [purpose, setPurpose] = useState('');
   const [durationDays, setDurationDays] = useState(TOTAL_DAYS);
   const [confirming, setConfirming] = useState(false);
-  const commitments = commitmentsForDuration(durationDays);
+  const commitments = member ? memberCommitmentsForDuration(durationDays) : commitmentsForDuration(durationDays);
   const acceptedCount = commitments.filter((item) => checked[item.id]).length;
-  const accepted = Boolean(acceptCommitments(checked, purpose, new Date().toISOString(), durationDays));
+  const acceptance = member ? acceptMemberCommitments : acceptCommitments;
+  const accepted = Boolean(acceptance(checked, purpose, new Date().toISOString(), durationDays));
   const confirmStart = () => {
-    const acceptedCommitments = acceptCommitments(checked, purpose, new Date().toISOString(), durationDays);
+    const acceptedCommitments = acceptance(checked, purpose, new Date().toISOString(), durationDays);
     if (!acceptedCommitments || starting) return;
     onStart(acceptedCommitments, durationDays);
     setConfirming(false);
@@ -411,8 +402,8 @@ function StartScreen({ history, onStart, starting, error, onRetry, onLogOut }) {
         <div className="relative mx-auto max-w-4xl px-5 py-10 sm:py-14">
           <div className="flex items-center justify-between gap-3"><div className="text-sm font-black uppercase text-[#0d8fb9]">Мой осознанный выбор</div><button type="button" onClick={onLogOut} className="icon-command" title="Выйти"><LogOut size={18} /></button></div>
           <h1 className="mt-4 max-w-xl text-4xl font-black leading-tight text-[#102a43] sm:text-5xl">{durationDays} дней перемен</h1>
-          <p className="mt-4 max-w-xl text-lg font-semibold leading-7 text-slate-700">Я выбираю свободу от старых привычек. Сильное тело, действия к цели и доверие к себе.</p>
-          <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm font-bold text-[#16865f]"><span>65 кг · форма и энергия</span><span>Ценность в работе</span><span>Свобода проявляться</span></div>
+          <p className="mt-4 max-w-xl text-lg font-semibold leading-7 text-slate-700">{member ? 'Свой план тела, питания и движения. Честные отметки, понятная динамика и поддержка без давления.' : 'Я выбираю свободу от старых привычек. Сильное тело, действия к цели и доверие к себе.'}</p>
+          <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm font-bold text-[#16865f]">{member ? <><span>Свой целевой вес</span><span>Измеримый прогресс</span><span>Друзья и вызовы</span></> : <><span>65 кг · форма и энергия</span><span>Ценность в работе</span><span>Свобода проявляться</span></>}</div>
         </div>
       </section>
       <div className="mx-auto max-w-4xl px-4 py-6 sm:px-5">
@@ -420,8 +411,8 @@ function StartScreen({ history, onStart, starting, error, onRetry, onLogOut }) {
           <div className="text-sm font-black text-[#0d7ea5]">Срок марафона</div>
           <div className="mt-3 grid grid-cols-3 gap-2">{MARATHON_DURATIONS.map((duration) => <button key={duration} type="button" onClick={() => setDurationDays(duration)} aria-pressed={durationDays === duration} className={`min-h-[52px] border px-3 font-black rounded-md ${durationDays === duration ? 'border-[#0d8fb9] bg-[#0d8fb9] text-white' : 'border-[#d8e3e7] bg-[#f7f9fa] text-slate-600'}`}>{duration} дней</button>)}</div>
         </section>
-        <div className="flex items-center justify-between gap-3"><h2 className="text-2xl font-black">Мои аскезы</h2><span className="shrink-0 text-sm font-bold text-[#16865f]">{acceptedCount} из {commitments.length}</span></div>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Аскеза — добровольная практика самодисциплины ради выбранной цели. Здесь я принимаю конкретные обязательства на {durationDays} календарных дней.</p>
+        <div className="flex items-center justify-between gap-3"><h2 className="text-2xl font-black">{member ? 'Правила пути' : 'Мои аскезы'}</h2><span className="shrink-0 text-sm font-bold text-[#16865f]">{acceptedCount} из {commitments.length}</span></div>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">{member ? `Перед стартом я принимаю понятные правила на ${durationDays} дней. Конкретные ежедневные цели можно будет настроить в своём Кодексе.` : `Аскеза — добровольная практика самодисциплины ради выбранной цели. Здесь я принимаю конкретные обязательства на ${durationDays} календарных дней.`}</p>
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           {commitments.map((item, index) => <label key={item.id} className={`flex cursor-pointer items-start gap-3 border p-4 transition-colors rounded-lg ${checked[item.id] ? 'border-[#8dd6ad] bg-[#ecfbf3]' : 'border-[#d8e3e7] bg-white'}`}><input type="checkbox" aria-label={item.title} checked={Boolean(checked[item.id])} onChange={(event) => setChecked({ ...checked, [item.id]: event.target.checked })} className="mt-1 h-5 w-5 shrink-0 accent-[#16a36a]" /><span className="min-w-0"><span className="text-xs font-bold text-[#0d8fb9]">0{index + 1} · {item.metric}</span><strong className="mt-1 block text-base leading-6">{item.title}</strong><span className="mt-2 block text-sm leading-6 text-slate-600">{item.text}</span></span></label>)}
         </div>
@@ -475,7 +466,7 @@ function CommitmentSummary({ commitments, totalDays }) {
   return <details className="border-y border-[#d8e3e7] py-3"><summary className="flex cursor-pointer items-center justify-between gap-3 text-sm font-bold text-[#16865f]"><span className="flex items-center gap-2"><Heart size={17} />Мой выбор на {totalDays} дней</span><ChevronDown size={17} /></summary><p className="mt-3 font-semibold leading-6">{commitments.purpose}</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{commitments.items.map((item) => <div key={item.id}><h3 className="text-sm font-bold">{item.title}</h3><p className="mt-1 text-sm leading-6 text-slate-600">{item.text}</p></div>)}</div></details>;
 }
 
-function CompactHeader({ currentDay, totalDays, progress, syncState, view, onView, onGoals, onExport, onLogOut }) {
+function CompactHeader({ currentDay, totalDays, progress, syncState, view, onView, onExport, onLogOut }) {
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <header className="sticky top-0 z-40 border-b border-[#d9e4e8] bg-white/95 backdrop-blur-xl">
@@ -490,11 +481,12 @@ function CompactHeader({ currentDay, totalDays, progress, syncState, view, onVie
           <NavButton active={view === 'steps'} icon={<Footprints size={17} />} label="Шаги" onClick={() => onView('steps')} />
           <NavButton active={view === 'course'} icon={<Compass size={17} />} label="Курс" onClick={() => onView('course')} />
           <NavButton active={view === 'stats'} icon={<BarChart3 size={17} />} label="Статистика" onClick={() => onView('stats')} />
+          <NavButton active={view === 'friends'} icon={<Users size={17} />} label="Друзья" onClick={() => onView('friends')} />
         </div>
         <span role="status" aria-label={syncState === 'offline' ? 'Сохранено на устройстве, ожидает синхронизации' : syncState === 'saving' ? 'Сохраняю в облако' : 'Сохранено в облаке'} className={`h-2.5 w-2.5 shrink-0 rounded-full ${syncState === 'offline' ? 'bg-rose-500' : syncState === 'saving' ? 'animate-pulse bg-amber-400' : 'bg-emerald-500'}`} title={syncState === 'offline' ? 'Сохранено на устройстве' : syncState === 'saving' ? 'Сохраняю в облако' : 'Сохранено в облаке'} />
         <div className="relative">
           <button type="button" onClick={() => setMenuOpen((value) => !value)} className="grid h-10 w-10 place-items-center border border-[#d9e4e8] bg-white text-slate-700 rounded-md" title="Меню"><Menu size={19} /></button>
-          <AnimatePresence>{menuOpen && <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="absolute right-0 top-12 z-50 w-52 border border-[#d9e4e8] bg-white p-2 shadow-xl rounded-lg"><MenuItem icon={<Target size={16} />} label="Цели" onClick={() => { onGoals(); setMenuOpen(false); }} /><MenuItem icon={<Download size={16} />} label="Экспорт" onClick={() => { onExport(); setMenuOpen(false); }} /><MenuItem icon={<LogOut size={16} />} label="Выйти" onClick={onLogOut} /></motion.div>}</AnimatePresence>
+          <AnimatePresence>{menuOpen && <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="absolute right-0 top-12 z-50 w-52 border border-[#d9e4e8] bg-white p-2 shadow-xl rounded-lg"><MenuItem icon={<Download size={16} />} label="Экспорт" onClick={() => { onExport(); setMenuOpen(false); }} /><MenuItem icon={<LogOut size={16} />} label="Выйти" onClick={onLogOut} /></motion.div>}</AnimatePresence>
         </div>
       </div>
     </header>
@@ -510,14 +502,14 @@ function MenuItem({ icon, label, onClick }) {
 }
 
 function MobileNav({ view, onView }) {
-  return <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#d9e4e8] bg-white/95 px-2 py-2 backdrop-blur-xl sm:hidden"><div className="mx-auto grid max-w-md grid-cols-4 gap-1"><MobileNavButton active={view === 'today'} icon={<Home />} label="Сегодня" onClick={() => onView('today')} /><MobileNavButton active={view === 'steps'} icon={<Footprints />} label="Шаги" onClick={() => onView('steps')} /><MobileNavButton active={view === 'course'} icon={<Compass />} label="Курс" onClick={() => onView('course')} /><MobileNavButton active={view === 'stats'} icon={<BarChart3 />} label="Статистика" onClick={() => onView('stats')} /></div></nav>;
+  return <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#d9e4e8] bg-white/95 px-2 py-2 backdrop-blur-xl sm:hidden"><div className="mx-auto grid max-w-md grid-cols-5 gap-1"><MobileNavButton active={view === 'today'} icon={<Home />} label="Сегодня" onClick={() => onView('today')} /><MobileNavButton active={view === 'steps'} icon={<Footprints />} label="Шаги" onClick={() => onView('steps')} /><MobileNavButton active={view === 'course'} icon={<Compass />} label="Курс" onClick={() => onView('course')} /><MobileNavButton active={view === 'stats'} icon={<BarChart3 />} label="Статистика" onClick={() => onView('stats')} /><MobileNavButton active={view === 'friends'} icon={<Users />} label="Друзья" onClick={() => onView('friends')} /></div></nav>;
 }
 
 function MobileNavButton({ active, icon, label, onClick }) {
   return <button type="button" onClick={onClick} className={`flex min-h-[48px] flex-col items-center justify-center gap-1 text-[11px] font-black rounded-md ${active ? 'bg-[#eaf8fd] text-[#0d8fb9]' : 'text-slate-500'}`}>{icon}{label}</button>;
 }
 
-function JourneyMap({ days, goals, criteria, thresholds, currentDayIndex, selectedIndex, totalDays, onSelect, stats }) {
+function JourneyMap({ days, goals, codexRules, criteria, thresholds, currentDayIndex, selectedIndex, totalDays, onSelect, stats }) {
   const [open, setOpen] = useState(false);
   const scrollerRef = useRef(null);
   const currentRef = useRef(null);
@@ -526,7 +518,7 @@ function JourneyMap({ days, goals, criteria, thresholds, currentDayIndex, select
     const tile = currentRef.current;
     if (scroller && tile) scroller.scrollTop = Math.max(0, scroller.scrollTop + tile.getBoundingClientRect().top - scroller.getBoundingClientRect().top - scroller.clientHeight / 2 + tile.clientHeight / 2);
   }, [currentDayIndex]);
-  const results = days.slice(0, currentDayIndex + 1).map((day) => getDayResult(day, goals, criteria, thresholds));
+  const results = days.slice(0, currentDayIndex + 1).map((day) => getDayResult(day, goals, criteria, thresholds, codexRules));
   const isGreen = (result) => ['strong', 'expansion'].includes(result?.id);
   const green7 = results.slice(-7).filter(isGreen).length;
   const green30 = results.slice(-30).filter(isGreen).length;
@@ -546,7 +538,7 @@ function JourneyMap({ days, goals, criteria, thresholds, currentDayIndex, select
         <div className="grid grid-cols-5 gap-2 sm:grid-cols-8 lg:grid-cols-12">
           {days.map((day, index) => {
             const future = index > currentDayIndex;
-            const result = getDayResult(day, goals, criteria, thresholds);
+            const result = getDayResult(day, goals, criteria, thresholds, codexRules);
             const partial = index < currentDayIndex && !result && hasDayData(day);
             const missed = index < currentDayIndex && !result && !partial;
             const selected = index === selectedIndex;
@@ -605,11 +597,8 @@ function CareerStrip({ decision, onChoose }) {
 }
 
 function DailyEditor(props) {
-  const { day, goals, tasks, editable, evaluation, profile, weeklyReview, weeklyReviewRequired, finalReview, finalReviewRequired, totalDays, lifeState, lifeCommit, onDayChange, onSave, onClose, onAddGoal, onEditGoal, onPickGoals, onAddTask, onToggleTask, onDeleteTask, onReviewChange, onFinalReviewChange } = props;
-  const activeGoals = visibleGoalsForDay(day, goals);
+  const { day, goals, tasks, editable, evaluation, profile, weeklyReview, weeklyReviewRequired, finalReview, finalReviewRequired, totalDays, codexState, codexCommit, onDayChange, onSave, onClose, onAddTask, onToggleTask, onDeleteTask, onReviewChange, onFinalReviewChange } = props;
   const availableGoals = goals.filter((goal) => goal.active !== false && goal.createdDay <= day.day);
-  const removeGoal = (goal) => onDayChange({ ...day, visibleGoalIds: activeGoals.filter((item) => item.id !== goal.id).map((item) => item.id) });
-  const coreBroken = ['alcohol-zero', 'sweet-zero'].some((id) => day.goalValues?.[id] === false);
   const energyBalance = calculateEnergyBalance(day, profile);
   const bmr = calculateBmr(day.weight, profile);
   const relevantTasks = tasks.filter((task) => task.active !== false && (!task.completedDay || task.completedDay === day.day));
@@ -618,17 +607,10 @@ function DailyEditor(props) {
     <div className="grid min-w-0 gap-4 lg:grid-cols-[1.18fr_0.82fr]">
       <div className="grid min-w-0 content-start gap-4">
         <FocusActions day={day} editable={editable} onDayChange={onDayChange} />
-        {lifeState && <CodexPanel state={lifeState} day={day} editable={editable} commit={lifeCommit} onDayChange={onDayChange} />}
+        {codexState && <CodexPanel state={codexState} day={day} editable={editable} commit={codexCommit} onDayChange={onDayChange} />}
         <Section title="Показатели тела" eyebrow={energyBalance === null ? 'Нужны данные' : energyBalance < 0 ? `Дефицит ${Math.abs(energyBalance)} ккал` : `Профицит ${energyBalance} ккал`} icon={<Activity />}>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><NumberInput label="Калории" icon={<Utensils />} value={day.calories} disabled={!editable} onChange={(calories) => onDayChange({ ...day, calories })} /><NumberInput label="Активные" icon={<BatteryCharging />} value={day.activeCalories} disabled={!editable} onChange={(activeCalories) => onDayChange({ ...day, activeCalories })} /><NumberInput label="Шаги" icon={<Footprints />} value={day.steps} disabled={!editable} onChange={(steps) => onDayChange({ ...day, steps })} /><NumberInput label="Вес, кг" icon={<Scale />} value={day.weight} step="0.1" disabled={!editable} onChange={(weight) => onDayChange({ ...day, weight })} /></div>
           {(bmr > 0 || energyBalance !== null) && <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs font-bold text-slate-500"><span>Базовый обмен: <strong className="text-[#102a43]">{bmr || '—'} ккал</strong></span><span>Ориентир питания: <strong className="text-[#102a43]">{CALORIE_TARGET} / {CALORIE_LIMIT}</strong></span></div>}
-        </Section>
-
-        <Section title="Цели этого дня" eyebrow={`${activeGoals.length} выбрано`} icon={<Target />} action={editable && <div className="flex shrink-0 gap-1"><button type="button" onClick={onPickGoals} className="icon-command" title="Выбрать цели на день"><ListFilter size={18} /></button><button type="button" onClick={onAddGoal} className="icon-command" title="Создать цель"><Plus size={18} /></button></div>}>
-          <div className="grid gap-2">
-            {activeGoals.map((goal) => <GoalCheckin key={goal.id} goal={goal} value={day.goalValues?.[goal.id]} disabled={!editable} onEdit={() => onEditGoal(goal)} onRemove={goal.locked || !editable ? null : () => removeGoal(goal)} onChange={(value) => onDayChange({ ...day, goalValues: { ...(day.goalValues || {}), [goal.id]: value } })} />)}
-          </div>
-          {coreBroken && <label className="mt-3 block border border-[#f3c5bf] bg-[#fff5f3] p-3 rounded-md"><span className="text-xs font-black uppercase tracking-wide text-[#a7473e]">Что происходило перед возвратом?</span><textarea value={day.returnContext || ''} disabled={!editable} onChange={(event) => onDayChange({ ...day, returnContext: event.target.value })} placeholder="Без обвинений: ситуация, триггер и следующий выбор" className="mt-2 h-20 w-full resize-none bg-transparent text-sm font-semibold leading-6 outline-none placeholder:text-slate-400" /></label>}
         </Section>
 
       </div>
@@ -664,16 +646,6 @@ function NumberInput({ label, icon, value, onChange, disabled, step = '1' }) {
   return <label className="border border-[#dce6e9] bg-[#f7f9fa] p-2.5 rounded-md"><span className="flex items-center gap-1.5 text-xs font-black text-slate-500">{icon}{label}</span><input type="number" min="0" step={step} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className="mt-2 w-full bg-transparent text-xl font-black outline-none disabled:text-slate-400" /></label>;
 }
 
-function GoalCheckin({ goal, value, disabled, onChange, onEdit, onRemove }) {
-  return (
-    <div className="flex flex-col gap-3 border border-[#dce6e9] bg-[#fbfcfc] p-3 rounded-md sm:flex-row sm:items-center">
-      <span className="h-10 w-1.5 shrink-0 rounded-sm" style={{ backgroundColor: goal.color }} />
-      <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h3 className="truncate text-sm font-black">{goal.name}</h3><button type="button" onClick={onEdit} className="text-slate-400 hover:text-slate-700" title={`Редактировать цель ${goal.name}`}><Edit3 size={14} /></button>{onRemove && <button type="button" onClick={onRemove} className="text-slate-400 hover:text-rose-600" title={`Убрать из этого дня: ${goal.name}`}><X size={16} /></button>}</div><p className="mt-1 text-xs font-semibold text-slate-500">{goal.cadence === 'daily' ? 'Каждый день' : goal.cadence === 'weekly' ? `${goal.target} ${goal.unit} в неделю` : `${goal.target} ${goal.unit} за марафон`}</p></div>
-      {goal.type === 'binary' ? <div className="grid w-full grid-cols-2 gap-2 sm:w-44"><ChoiceButton active={value === true} label="Да" positive onClick={() => onChange(true)} disabled={disabled} /><ChoiceButton active={value === false} label="Нет" onClick={() => onChange(false)} disabled={disabled} /></div> : <label className="flex w-full items-center gap-2 border border-[#d8e3e7] bg-white px-3 py-2 rounded-md sm:w-48"><input type="number" min="0" value={value ?? ''} disabled={disabled} onChange={(event) => onChange(event.target.value)} className="min-w-0 flex-1 bg-transparent text-lg font-black outline-none" /><span className="text-xs font-bold text-slate-500">{goal.unit}</span></label>}
-    </div>
-  );
-}
-
 function DayGoalPicker({ day, goals, editable, onChange, onClose }) {
   const available = goals.filter((goal) => goal.active !== false && goal.createdDay <= day.day);
   const selected = visibleGoalsForDay(day, goals).map((goal) => goal.id);
@@ -682,10 +654,6 @@ function DayGoalPicker({ day, goals, editable, onChange, onClose }) {
     onChange({ ...day, visibleGoalIds: selected.includes(goal.id) ? selected.filter((id) => id !== goal.id) : [...selected, goal.id] });
   };
   return <ModalShell title="Цели на этот день" onClose={onClose}><div className="grid gap-2">{available.map((goal) => <button key={goal.id} type="button" disabled={!editable || goal.locked} onClick={() => toggle(goal)} aria-pressed={selected.includes(goal.id)} className={`flex min-h-12 items-center gap-3 border p-3 text-left rounded-md ${selected.includes(goal.id) ? 'border-[#9bd9bb] bg-[#effaf3]' : 'border-[#dce6e9] bg-white'} disabled:cursor-default`}><span className={`grid h-5 w-5 shrink-0 place-items-center border rounded-sm ${selected.includes(goal.id) ? 'border-[#16a36a] bg-[#16a36a] text-white' : 'border-[#b9c9cf] bg-white'}`}>{selected.includes(goal.id) && <Check size={14} />}</span><span className="min-w-0 flex-1 truncate text-sm font-black">{goal.name}</span>{goal.locked && <Lock size={15} className="text-slate-400" />}</button>)}</div><button type="button" onClick={onClose} className="mt-4 min-h-11 w-full bg-[#102a43] font-black text-white rounded-md">Готово</button></ModalShell>;
-}
-
-function ChoiceButton({ active, label, positive, onClick, disabled }) {
-  return <button type="button" disabled={disabled} onClick={onClick} className={`min-h-[40px] border text-sm font-black rounded-md ${active ? positive ? 'border-[#8dd6ad] bg-[#ecfbf3] text-[#16865f]' : 'border-[#f3b9b2] bg-[#fff0ee] text-[#a7473e]' : 'border-[#d8e3e7] bg-white text-slate-500'}`}>{label}</button>;
 }
 
 function ActionLog({ goals, actions, disabled, onChange }) {
@@ -722,7 +690,7 @@ function FinalReview({ review, totalDays, required, disabled, onChange }) {
   return <Section title={`День ${totalDays}: итог пути`} eyebrow={required ? 'Собери то, что теперь останется с тобой' : 'Финал собран'} icon={<Trophy />} tone="coral"><div className="grid gap-2"><ReflectionInput label="Что изменилось в теле и энергии?" value={review.body} disabled={disabled} onChange={(body) => onChange({ body })} /><ReflectionInput label="Что произошло с работой и професиональной ценностью?" value={review.career} disabled={disabled} onChange={(career) => onChange({ career })} /><ReflectionInput label="Какими действиями я доказал себе право быть собой?" value={review.identity} disabled={disabled} onChange={(identity) => onChange({ identity })} /><ReflectionInput label="Какой следующий путь я выбираю?" value={review.next} disabled={disabled} onChange={(next) => onChange({ next })} /></div></Section>;
 }
 
-function StatsDashboard({ user, state, stats, lifeState, lifeCommit, range, totalDays, onRange, onEditGoal, onAddGoal, onProfileChange, onScoringChange }) {
+function StatsDashboard({ user, state, stats, lifeState, lifeCommit, codexCommit, range, totalDays, onRange, onProfileChange, onScoringChange }) {
   const [section, setSection] = useState('metrics');
   const weightRemaining = stats.lastWeight ? Math.max(0, stats.lastWeight - number(state.profile.targetWeight)) : null;
   return (
@@ -731,11 +699,11 @@ function StatsDashboard({ user, state, stats, lifeState, lifeCommit, range, tota
       {section === 'events' && lifeState && <EventsPanel user={user} state={lifeState} commit={lifeCommit} />}
       {section === 'patterns' && <PatternsPanel marathon={state} />}
       {section === 'metrics' && <>
-      <section className="grid grid-cols-2 gap-2 lg:grid-cols-4"><SummaryCard label="До 65 кг" value={weightRemaining === null ? 'Нужен вес' : `${weightRemaining.toFixed(1)} кг`} color="#16a36a" /><SummaryCard label="Энергобаланс" value={`${stats.avgBalance > 0 ? '+' : ''}${stats.avgBalance} ккал`} color="#f06c5f" /><SummaryCard label="Действия" value={stats.allActions.length} color="#0d8fb9" /><SummaryCard label="Задачи" value={`${stats.tasksDone}/${stats.tasksDone + stats.tasksOpen}`} color="#7c63d6" /></section>
+      <section className="grid grid-cols-2 gap-2 lg:grid-cols-5"><SummaryCard label="До 65 кг" value={weightRemaining === null ? 'Нужен вес' : `${weightRemaining.toFixed(1)} кг`} color="#16a36a" /><SummaryCard label="Энергобаланс" value={`${stats.avgBalance > 0 ? '+' : ''}${stats.avgBalance} ккал`} color="#f06c5f" /><SummaryCard label="Действия" value={stats.allActions.length} color="#0d8fb9" /><SummaryCard label="Рефлексия" value={`${stats.reflectionRate}%`} color="#d55784" /><SummaryCard label="Задачи" value={`${stats.tasksDone}/${stats.tasksDone + stats.tasksOpen}`} color="#7c63d6" /></section>
 
       <WeightProjection projection={stats.weightProjection} startDate={state.startDate} totalDays={totalDays} />
 
-      <section className="border border-[#d8e3e7] bg-white p-4 rounded-lg"><div className="mb-4 flex items-center justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-black text-[#0d8fb9]"><Target size={18} />Цели</div><h2 className="mt-1 text-xl font-black">Каждая цель считает себя сама</h2></div><button type="button" onClick={onAddGoal} className="icon-command" title="Добавить цель"><Plus size={18} /></button></div><div className="grid gap-3 lg:grid-cols-2">{stats.goalStats.filter((item) => item.goal.active !== false).map((item) => <GoalStat key={item.goal.id} item={item} onEdit={() => onEditGoal(item.goal)} />)}</div></section>
+      <CodexStats stats={stats.codexStats} state={state} commit={codexCommit} />
 
       <section className="grid gap-4 lg:grid-cols-2"><MetricPanel title="Вес" subtitle={`${stats.firstWeight || '—'} → ${stats.lastWeight || '—'} кг`} icon={<Scale />}><LineGraph data={stats.weights} color="#16a36a" unit="кг" target={number(state.profile.targetWeight)} /></MetricPanel><MetricPanel title="Энергетический итог" subtitle={`${stats.totalBalance > 0 ? '+' : ''}${stats.totalBalance} ккал за период`} icon={<Gauge />}><BalanceGraph data={stats.balances} /></MetricPanel><MetricPanel title="Калории" subtitle={`среднее ${stats.avgCalories || '—'} ккал`} icon={<Utensils />}><LineGraph data={stats.calories} color="#f06c5f" unit="ккал" guides={[CALORIE_TARGET, CALORIE_LIMIT]} /></MetricPanel><MetricPanel title="Шаги" subtitle={`среднее ${stats.avgSteps.toLocaleString('ru-RU')}`} icon={<Footprints />}><LineGraph data={stats.steps} color="#0d8fb9" unit="шагов" guides={[8000]} /></MetricPanel></section>
 
@@ -760,11 +728,6 @@ function RangeControl({ value, totalDays, onChange }) {
 
 function SummaryCard({ label, value, color }) {
   return <div className="border border-[#d8e3e7] bg-white p-3 rounded-lg"><div className="h-1 w-10 rounded-sm" style={{ backgroundColor: color }} /><div className="mt-3 text-xs font-black text-slate-500">{label}</div><div className="mt-1 text-xl font-black">{value}</div></div>;
-}
-
-function GoalStat({ item, onEdit }) {
-  const { goal } = item;
-  return <div className="border border-[#dce6e9] bg-[#fbfcfc] p-4 rounded-md"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2"><i className="h-3 w-3 rounded-sm" style={{ backgroundColor: goal.color }} /><h3 className="truncate font-black">{goal.name}</h3></div><p className="mt-1 text-xs font-bold text-slate-500">{goal.cadence === 'daily' ? 'дневная' : goal.cadence === 'weekly' ? 'недельная' : 'итоговая'} цель</p></div><button type="button" onClick={onEdit} className="text-slate-400 hover:text-slate-700" title="Редактировать"><Edit3 size={16} /></button></div><div className="mt-4 flex items-end justify-between gap-3"><div><strong className="text-3xl font-black" style={{ color: goal.color }}>{item.achieved}</strong><span className="ml-1 text-sm font-bold text-slate-500">/ {item.target} {goal.unit}</span></div><span className="text-sm font-black">{item.progress}%</span></div><div className="mt-2 h-2 overflow-hidden bg-[#e8eef0] rounded-sm"><motion.div className="h-full" style={{ backgroundColor: goal.color }} animate={{ width: `${item.progress}%` }} /></div><div className="mt-3 grid grid-cols-3 gap-2 text-center text-[11px] font-bold text-slate-500"><span>серия <strong className="block text-sm text-[#102a43]">{item.streak}</strong></span><span>задачи <strong className="block text-sm text-[#102a43]">{item.completedTasks}</strong></span><span>факты <strong className="block text-sm text-[#102a43]">{item.actionCount}</strong></span></div></div>;
 }
 
 function MetricPanel({ title, subtitle, icon, children }) {

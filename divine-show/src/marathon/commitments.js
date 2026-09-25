@@ -36,8 +36,26 @@ export function commitmentsForDuration(durationDays = 120) {
       : item);
 }
 
+export function memberCommitmentsForDuration(durationDays = 120) {
+  const duration = [30, 90, 120].includes(Number(durationDays)) ? Number(durationDays) : 120;
+  return [
+    { id: 'honesty', title: 'Отмечать факты честно', metric: `${duration} дней реальных данных`, text: 'Я отмечаю выполненное и невыполненное без попытки понравиться рейтингу. Этот путь нужен прежде всего мне.' },
+    { id: 'nutrition', title: 'Следовать своему плану питания', metric: 'Калории и выбор питания', text: 'Я заранее выбираю посильный план, не компенсирую отклонения голоданием и меняю лимит, если он перестал быть безопасным.' },
+    { id: 'movement', title: 'Двигаться в своём темпе', metric: 'Активность и шаги, если считаю их', text: 'Я выбираю доступную активность. Если у меня нет трекера, приложение не будет требовать активные калории.' },
+    { id: 'measurements', title: 'Смотреть на динамику, а не на один день', metric: 'Вес, замеры и фото по желанию', text: 'Я сравниваю точки в одинаковых условиях и не делаю вывод о себе по случайному колебанию веса.' },
+    { id: 'rules', title: 'Собрать собственный Кодекс', metric: 'Только мои измеримые правила', text: 'Я могу добавить, скрыть или завершить правило. История останется в статистике с даты, когда правило действовало.' },
+    { id: 'respect', title: 'Оставаться на своей стороне', metric: 'Дисциплина без унижения', text: 'Результат дня описывает действия, а не мою ценность. После отклонения следующий полезный выбор начинается сразу.' },
+  ];
+}
+
 export function acceptCommitments(checked, purpose, acceptedAt, durationDays = 120) {
   const items = commitmentsForDuration(durationDays);
+  if (!items.every((item) => checked?.[item.id] === true) || purpose?.trim().length < 10 || !purpose?.trim()) return null;
+  return { version: COMMITMENT_VERSION, acceptedAt, purpose: purpose.trim(), items: items.map((item) => ({ ...item, accepted: true })) };
+}
+
+export function acceptMemberCommitments(checked, purpose, acceptedAt, durationDays = 120) {
+  const items = memberCommitmentsForDuration(durationDays);
   if (!items.every((item) => checked?.[item.id] === true) || purpose?.trim().length < 10 || !purpose?.trim()) return null;
   return { version: COMMITMENT_VERSION, acceptedAt, purpose: purpose.trim(), items: items.map((item) => ({ ...item, accepted: true })) };
 }

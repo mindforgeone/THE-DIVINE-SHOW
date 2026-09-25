@@ -17,6 +17,7 @@ const completeDay = (state, index = 0, patch = {}) => updateDayDraft(state.days[
   weight: '69.6', calories: '1850', activeCalories: '400', steps: '9000', evidence: 'Made one useful step toward a goal.',
   actions: [], courageMoments: [], returnContext: '',
   goalValues: { 'alcohol-zero': true, 'sweet-zero': true, 'daily-action': true }, ...patch,
+  codexValues: { alcohol: true, wot: true, reels: true, ...(patch.codexValues || {}) },
 }, EVENING);
 
 test('all commitments and a personal purpose must be explicitly accepted', () => {
@@ -91,9 +92,9 @@ test('midnight or later reopen closes every complete past day exactly once', () 
 
 test('return and expansion use exactly the same grading for automatic and manual close', () => {
   const state = makeState();
-  state.days[0] = completeDay(state, 0, { goalValues: { 'alcohol-zero': false, 'sweet-zero': true, 'daily-action': true }, returnContext: 'A difficult social situation' });
+  state.days[0] = completeDay(state, 0, { codexValues: { alcohol: false, wot: true, reels: true }, returnContext: 'A difficult social situation' });
   state.days[1] = completeDay(state, 1, { actions: [{ id: 'a', goalId: 'kontur-value', text: 'Completed a useful task' }] });
-  const expected = state.days.slice(0, 2).map((day) => evaluateDay(day, state.goals));
+  const expected = state.days.slice(0, 2).map((day) => evaluateDay(day, state.goals, state.dayCriteria, state.resultThresholds, state.codexRules));
   const closed = finalizePastDays(state, '2026-09-09', NEXT);
   expected.forEach((grade, index) => {
     assert.equal(closed.days[index].result, grade.id);
@@ -162,6 +163,19 @@ test('different offline fields merge without losing the morning weight', () => {
   const cleared = structuredClone(merged);
   cleared.days[0] = updateDayDraft(cleared.days[0], { weight: '' }, NEXT);
   assert.equal(mergeStates(merged, cleared).days[0].weight, '');
+});
+
+test('independent Codex choices merge per rule and feed rule statistics', () => {
+  const remote = makeState();
+  const local = structuredClone(remote);
+  remote.days[0] = updateDayDraft(remote.days[0], { codexValues: { alcohol: true } }, MORNING);
+  local.days[0] = updateDayDraft(local.days[0], { codexValues: { wot: false } }, EVENING);
+  const merged = mergeStates(remote, local);
+  assert.equal(merged.days[0].codexValues.alcohol, true);
+  assert.equal(merged.days[0].codexValues.wot, false);
+  const stats = calculateStats(merged, 0, 'all');
+  assert.equal(stats.codexStats.find((item) => item.rule.id === 'alcohol').passed, 1);
+  assert.equal(stats.codexStats.find((item) => item.rule.id === 'wot').failed, 1);
 });
 
 test('later offline input recalculates automatic result but cannot change a manual lock', () => {

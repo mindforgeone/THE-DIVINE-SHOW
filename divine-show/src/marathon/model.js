@@ -42,6 +42,30 @@ export const GOAL_CADENCES = [
   { id: 'total', label: 'За весь марафон' },
 ];
 
+export function defaultCodexRules(startDate) {
+  const base = [
+    { id: 'alcohol', title: 'Без алкоголя', type: 'boolean', target: 1, unit: '', critical: true },
+    { id: 'wot', title: 'Без World of Tanks', type: 'boolean', target: 1, unit: '', critical: true },
+    { id: 'reels', title: 'Instagram / Reels не больше 20 минут', type: 'boolean', target: 1, unit: '' },
+    { id: 'nutrition-1850', title: 'Питание не больше 1850 ккал', type: 'limit', target: 1850, unit: 'ккал', sourceField: 'calories' },
+    { id: 'recover', title: 'Следующий правильный выбор начинается сразу', type: 'text', target: 0, unit: '', scoreEnabled: false, required: false, todayVisible: false, statsVisible: false },
+  ];
+  return base.map((rule, order) => ({
+    ...rule,
+    active: true,
+    required: rule.required !== false,
+    scoreEnabled: rule.scoreEnabled !== false,
+    todayVisible: rule.todayVisible !== false,
+    statsVisible: rule.statsVisible !== false,
+    order,
+    startDate,
+    endDate: '',
+    createdAt: `${startDate}T00:00:00.000Z`,
+    updatedAt: `${startDate}T00:00:00.000Z`,
+    deletedAt: null,
+  }));
+}
+
 export const COURAGE_CONTEXTS = [
   'Работа',
   'Общение',
@@ -189,7 +213,7 @@ export function createInitialState(startDate = todayKey(), acceptedAt = null, co
   const now = new Date().toISOString();
   const duration = normalizeDuration(durationDays);
   return {
-    version: 11,
+    version: 12,
     resetGeneration: '2026-09-24-life-platform-v1',
     journeyId: createId('journey'),
     durationDays: duration,
@@ -200,7 +224,11 @@ export function createInitialState(startDate = todayKey(), acceptedAt = null, co
     updatedAtClient: now,
     profile: { ...PROFILE_DEFAULTS },
     dayCriteria: DEFAULT_DAY_CRITERIA.map((item) => ({ ...item })),
-    resultThresholds: { steady: 50, strong: 80, expansion: 95 },
+    resultThresholds: { steady: 50, strong: 85, expansion: 95 },
+    codexRules: defaultCodexRules(startDate),
+    codexHistory: [],
+    bodyLogs: [],
+    progressPhotos: [],
     goals: defaultGoals(startDate, duration),
     tasks: [],
     days: Array.from({ length: duration }, (_, index) => createDay(index + 1, startDate)),
@@ -235,11 +263,24 @@ export function normalizeState(raw) {
   return {
     ...base,
     ...raw,
-    version: 11,
+    version: 12,
     durationDays,
     profile: { ...PROFILE_DEFAULTS, ...(raw.profile || {}) },
     dayCriteria: Array.isArray(raw.dayCriteria) ? raw.dayCriteria.map((item) => ({ ...item, active: item.active !== false, required: Boolean(item.required), weight: Math.max(0, number(item.weight)), target: number(item.target) })) : base.dayCriteria,
     resultThresholds: { ...base.resultThresholds, ...(raw.resultThresholds || {}) },
+    codexRules: Array.isArray(raw.codexRules) ? raw.codexRules.map((rule, index) => ({
+      type: 'boolean', target: 1, unit: '', active: true, required: true, scoreEnabled: true, todayVisible: true, statsVisible: true,
+      ...rule,
+      id: rule.id || createId('rule'),
+      title: rule.title || `Правило ${index + 1}`,
+      order: Number.isFinite(Number(rule.order)) ? Number(rule.order) : index,
+      startDate: rule.startDate || raw.startDate,
+      endDate: rule.endDate || '',
+      deletedAt: rule.deletedAt || null,
+    })) : base.codexRules,
+    codexHistory: Array.isArray(raw.codexHistory) ? raw.codexHistory : [],
+    bodyLogs: Array.isArray(raw.bodyLogs) ? raw.bodyLogs : [],
+    progressPhotos: Array.isArray(raw.progressPhotos) ? raw.progressPhotos : [],
     goals: Array.isArray(raw.goals) ? raw.goals.map((goal, index) => normalizeGoal(goal, index, raw.startDate, durationDays)) : base.goals,
     tasks: Array.isArray(raw.tasks) ? raw.tasks.map((task) => ({ ...task, updatedAt: task.updatedAt || task.createdAt || raw.startDate })) : [],
     days: Array.from({ length: durationDays }, (_, index) => {
@@ -279,7 +320,7 @@ function mergeById(first = [], second = []) {
   return [...map.values()];
 }
 
-const DAY_FIELDS = ['calories', 'activeCalories', 'steps', 'weight', 'actions', 'courageMoments', 'evidence', 'returnContext', 'visibleGoalIds', 'codexValues', 'focusActions'];
+const DAY_FIELDS = ['calories', 'activeCalories', 'steps', 'weight', 'actions', 'courageMoments', 'evidence', 'returnContext', 'visibleGoalIds', 'focusActions'];
 
 export function updateDayDraft(day, patch, changedAt) {
   const next = { ...day, ...patch, fieldUpdatedAt: { ...day.fieldUpdatedAt }, draftUpdatedAt: changedAt, draftSavedAt: changedAt };
@@ -289,12 +330,15 @@ export function updateDayDraft(day, patch, changedAt) {
   Object.keys(next.goalValues || {}).forEach((id) => {
     if (next.goalValues[id] !== day.goalValues?.[id]) next.fieldUpdatedAt[`goal:${id}`] = changedAt;
   });
+  Object.keys(next.codexValues || {}).forEach((id) => {
+    if (next.codexValues[id] !== day.codexValues?.[id]) next.fieldUpdatedAt[`codex:${id}`] = changedAt;
+  });
   return next;
 }
 
 function mergeDayDrafts(remote, local) {
   const newer = timestamp(local) >= timestamp(remote) ? local : remote;
-  const merged = { ...newer, goalValues: {}, fieldUpdatedAt: {} };
+  const merged = { ...newer, goalValues: {}, codexValues: {}, fieldUpdatedAt: {} };
   const fieldTime = (day, field, value) => Date.parse(day.fieldUpdatedAt?.[field] || ((value !== '' && value !== null && value !== undefined && (!Array.isArray(value) || value.length)) ? day.draftUpdatedAt || day.closedAt : '') || '') || 0;
   const choose = (field, remoteValue, localValue) => {
     const remoteTime = fieldTime(remote, field, remoteValue);
@@ -305,9 +349,11 @@ function mergeDayDrafts(remote, local) {
   DAY_FIELDS.forEach((field) => { merged[field] = choose(field, remote[field], local[field]); });
   const ids = new Set([...Object.keys(remote.goalValues || {}), ...Object.keys(local.goalValues || {})]);
   ids.forEach((id) => { merged.goalValues[id] = choose(`goal:${id}`, remote.goalValues?.[id], local.goalValues?.[id]); });
+  const codexIds = new Set([...Object.keys(remote.codexValues || {}), ...Object.keys(local.codexValues || {})]);
+  codexIds.forEach((id) => { merged.codexValues[id] = choose(`codex:${id}`, remote.codexValues?.[id], local.codexValues?.[id]); });
   const draftTime = Math.max(Date.parse(remote.draftUpdatedAt || '') || 0, Date.parse(local.draftUpdatedAt || '') || 0);
   if (draftTime) merged.draftUpdatedAt = new Date(draftTime).toISOString();
-  const contentChanged = DAY_FIELDS.some((field) => JSON.stringify(merged[field]) !== JSON.stringify(newer[field])) || JSON.stringify(merged.goalValues) !== JSON.stringify(newer.goalValues);
+  const contentChanged = DAY_FIELDS.some((field) => JSON.stringify(merged[field]) !== JSON.stringify(newer[field])) || JSON.stringify(merged.goalValues) !== JSON.stringify(newer.goalValues) || JSON.stringify(merged.codexValues) !== JSON.stringify(newer.codexValues);
   if (merged.closureMode === 'automatic' && contentChanged) {
     Object.assign(merged, { result: null, closureMode: null, closedAt: null, xp: 0, score: 0 });
   }
@@ -329,6 +375,10 @@ export function mergeStates(remoteRaw, localRaw) {
     ...local,
     ...newer,
     goals: mergeById(remote.goals, local.goals),
+    codexRules: mergeById(remote.codexRules, local.codexRules),
+    codexHistory: mergeById(remote.codexHistory, local.codexHistory),
+    bodyLogs: mergeById(remote.bodyLogs, local.bodyLogs),
+    progressPhotos: mergeById(remote.progressPhotos, local.progressPhotos),
     tasks: mergeById(remote.tasks, local.tasks),
     days: remote.days.map((remoteDay, index) => {
       const localDay = local.days[index];
@@ -407,13 +457,46 @@ export function visibleGoalsForDay(day, goals) {
   ));
 }
 
-export function evaluateDay(day, goals, criteria = DEFAULT_DAY_CRITERIA, thresholds = { steady: 50, strong: 80, expansion: 95 }) {
+export function activeCodexRulesForDay(day, rules = []) {
+  return rules
+    .filter((rule) => !rule.deletedAt && rule.active !== false)
+    .filter((rule) => (!rule.startDate || rule.startDate <= day.date) && (!rule.endDate || rule.endDate >= day.date))
+    .sort((a, b) => number(a.order) - number(b.order));
+}
+
+export function codexValueForDay(day, rule) {
+  return rule.sourceField ? day[rule.sourceField] : day.codexValues?.[rule.id];
+}
+
+export function evaluateCodexRule(day, rule) {
+  const value = codexValueForDay(day, rule);
+  const parsed = Number(String(value ?? '').replace(',', '.'));
+  const answered = rule.type === 'text'
+    ? String(value || '').trim().length > 0
+    : rule.type === 'boolean'
+      ? typeof value === 'boolean'
+      : value !== '' && value !== null && value !== undefined && Number.isFinite(parsed) && parsed >= 0;
+  const passed = answered && (rule.type === 'boolean'
+    ? value === true
+    : rule.type === 'text'
+      ? String(value).trim().length >= Math.max(1, number(rule.target))
+      : rule.type === 'limit'
+        ? parsed <= number(rule.target)
+        : parsed >= number(rule.target));
+  return { rule, value, answered, passed };
+}
+
+export function evaluateDay(day, goals, criteria = DEFAULT_DAY_CRITERIA, thresholds = { steady: 50, strong: 80, expansion: 95 }, codexRules = []) {
   const activeGoals = visibleGoalsForDay(day, goals);
   const dailyBinary = activeGoals.filter((goal) => goal.type === 'binary' && goal.cadence === 'daily');
   const answered = dailyBinary.filter((goal) => typeof day.goalValues?.[goal.id] === 'boolean');
   const kept = dailyBinary.filter((goal) => day.goalValues?.[goal.id] === true);
-  const coreBroken = ['alcohol-zero', 'sweet-zero'].some((id) => day.goalValues?.[id] === false);
-  const allDailyAnswered = answered.length === dailyBinary.length;
+  const codexState = activeCodexRulesForDay(day, codexRules).filter((rule) => rule.scoreEnabled !== false && (rule.todayVisible !== false || rule.sourceField)).map((rule) => evaluateCodexRule(day, rule));
+  const useCodex = codexState.length > 0;
+  const coreBroken = useCodex ? codexState.some((item) => item.rule.critical && item.answered && !item.passed) : ['alcohol-zero', 'sweet-zero'].some((id) => day.goalValues?.[id] === false);
+  const allDailyAnswered = useCodex
+    ? codexState.filter((item) => item.rule.required !== false).every((item) => item.answered)
+    : answered.length === dailyBinary.length;
   const activeCriteria = (criteria || DEFAULT_DAY_CRITERIA).filter((item) => item.active !== false);
   const criterionState = activeCriteria.map((criterion) => {
     const raw = day[criterion.field];
@@ -426,24 +509,27 @@ export function evaluateDay(day, goals, criteria = DEFAULT_DAY_CRITERIA, thresho
   const evidenceComplete = day.evidence?.trim().length >= 5;
   const actionsComplete = (day.actions || []).every(isActionComplete);
   const courageComplete = (day.courageMoments || []).every(isCourageComplete);
-  const returnComplete = !coreBroken || day.returnContext?.trim().length >= 3;
+  const returnComplete = useCodex || !coreBroken || day.returnContext?.trim().length >= 3;
   const evidenceRequired = activeCriteria.some((item) => item.field === 'evidence' && item.required);
   const canClose = allDailyAnswered && healthComplete && (!evidenceRequired || evidenceComplete) && actionsComplete && courageComplete && returnComplete;
   const actionCount = (day.actions || []).filter(isActionComplete).length;
   const courageCount = (day.courageMoments || []).filter(isCourageComplete).length;
   const criteriaWeight = criterionState.reduce((sum, item) => sum + number(item.criterion.weight), 0);
   const criteriaScore = criterionState.reduce((sum, item) => sum + (item.passed ? number(item.criterion.weight) : 0), 0);
-  const dailyScore = dailyBinary.length ? (kept.length / dailyBinary.length) * 30 : 30;
-  const score = Math.min(100, Math.round(dailyScore + (criteriaWeight ? criteriaScore / criteriaWeight * 60 : 60) + Math.min(10, actionCount * 5 + courageCount * 5)));
+  const codexPassed = codexState.filter((item) => item.passed).length;
+  const dailyScore = useCodex ? (codexPassed / codexState.length) * 50 : dailyBinary.length ? (kept.length / dailyBinary.length) * 30 : 30;
+  const criteriaShare = useCodex ? 40 : 60;
+  const score = Math.min(100, Math.round(dailyScore + (criteriaWeight ? criteriaScore / criteriaWeight * criteriaShare : criteriaShare) + Math.min(10, actionCount * 5 + courageCount * 5)));
   const blockers = [];
-  if (!allDailyAnswered) blockers.push(`Отметь ежедневные цели (${answered.length}/${dailyBinary.length})`);
+  if (!allDailyAnswered) blockers.push(useCodex ? `Отметь правила Кодекса (${codexState.filter((item) => item.answered).length}/${codexState.filter((item) => item.rule.required !== false).length})` : `Отметь ежедневные цели (${answered.length}/${dailyBinary.length})`);
   criterionState.filter((item) => item.criterion.required && !item.answered).forEach((item) => blockers.push(`Заполни: ${item.criterion.label}`));
   if (evidenceRequired && !evidenceComplete) blockers.push('Запиши победу дня');
   if (!actionsComplete) blockers.push('Заверши или удали добавленный факт действия');
   if (!courageComplete) blockers.push('Заверши или удали добавленную ситуацию');
   if (!returnComplete) blockers.push('Коротко зафиксируй контекст возврата');
   if (!canClose) return { id: 'draft', title: 'День в процессе', short: 'Черновик', xp: 0, score, canClose, blockers, color: '#94a3b8', pale: '#f1f5f9' };
-  let result = coreBroken || score < number(thresholds.steady) ? DAY_RESULTS.return : score >= number(thresholds.strong) ? DAY_RESULTS.strong : DAY_RESULTS.steady;
+  const codexRate = useCodex ? codexPassed / codexState.length : 1;
+  let result = coreBroken || codexRate < 0.5 || score < number(thresholds.steady) ? DAY_RESULTS.return : score >= number(thresholds.strong) ? DAY_RESULTS.strong : DAY_RESULTS.steady;
   if (!coreBroken && score >= number(thresholds.expansion) && (actionCount > 0 || courageCount > 0)) result = DAY_RESULTS.expansion;
   return { ...result, score, canClose, blockers: [] };
 }
@@ -455,12 +541,12 @@ function isValidMetric(value, minimum) {
 }
 
 export function hasDayData(day) {
-  return Boolean(day.result || day.draftUpdatedAt || day.draftSavedAt || ['weight', 'calories', 'activeCalories', 'steps'].some((key) => day[key] !== '' && day[key] !== null && day[key] !== undefined) || Object.keys(day.goalValues || {}).length || day.evidence?.trim() || day.actions?.length || day.courageMoments?.length);
+  return Boolean(day.result || day.draftUpdatedAt || day.draftSavedAt || ['weight', 'calories', 'activeCalories', 'steps'].some((key) => day[key] !== '' && day[key] !== null && day[key] !== undefined) || Object.keys(day.goalValues || {}).length || Object.keys(day.codexValues || {}).length || day.evidence?.trim() || day.actions?.length || day.courageMoments?.length);
 }
 
-export function getDayResult(day, goals, criteria, thresholds) {
+export function getDayResult(day, goals, criteria, thresholds, codexRules = []) {
   if (day.result) return { ...DAY_RESULTS[day.result], score: day.score, xp: day.xp, canClose: true, blockers: [] };
-  const evaluation = evaluateDay(day, goals, criteria, thresholds);
+  const evaluation = evaluateDay(day, goals, criteria, thresholds, codexRules);
   return evaluation.canClose ? evaluation : null;
 }
 
@@ -469,7 +555,7 @@ export function finalizePastDays(state, currentDate = todayKey(), finalizedAt = 
   let changed = false;
   const days = state.days.map((day) => {
     if (day.result || day.date >= currentDate || !hasDayData(day)) return day;
-    const result = evaluateDay(day, state.goals, state.dayCriteria, state.resultThresholds);
+    const result = evaluateDay(day, state.goals, state.dayCriteria, state.resultThresholds, state.codexRules);
     if (!result.canClose) return day;
     changed = true;
     return { ...day, result: result.id, score: result.score, xp: result.xp, closedAt: finalizedAt, closureMode: 'automatic', draftSavedAt: day.draftSavedAt || day.draftUpdatedAt || finalizedAt };
@@ -521,6 +607,29 @@ export function calculateGoalStats(goal, days, tasks, elapsedDayNumber) {
   };
 }
 
+export function calculateCodexStats(rule, days, elapsedDayNumber) {
+  const eligible = days
+    .filter((day) => day.day <= elapsedDayNumber)
+    .filter((day) => (!rule.startDate || rule.startDate <= day.date) && (!rule.endDate || rule.endDate >= day.date));
+  const evaluations = eligible.map((day) => ({ day: day.day, date: day.date, ...evaluateCodexRule(day, rule) })).filter((item) => item.answered);
+  const passed = evaluations.filter((item) => item.passed).length;
+  let streak = 0;
+  [...evaluations].reverse().some((item) => {
+    if (item.passed) { streak += 1; return false; }
+    return true;
+  });
+  return {
+    rule,
+    eligible: eligible.length,
+    recorded: evaluations.length,
+    passed,
+    failed: evaluations.length - passed,
+    completionRate: evaluations.length ? Math.round((passed / evaluations.length) * 100) : 0,
+    streak,
+    points: evaluations.map((item) => ({ day: item.day, value: item.passed ? 1 : 0 })),
+  };
+}
+
 export function calculateWeightProjection(weights, targetWeight, elapsedDayNumber, durationDays = TOTAL_DAYS) {
   const target = number(targetWeight);
   const latest = weights.at(-1);
@@ -562,7 +671,7 @@ export function calculateStats(state, currentDayIndex, range = '30') {
   const recorded = visible.filter(hasDayData);
   const allRecorded = elapsed.filter(hasDayData);
   const closed = elapsed.filter((day) => day.result);
-  const credited = elapsed.filter((day) => getDayResult(day, state.goals, state.dayCriteria, state.resultThresholds));
+  const credited = elapsed.filter((day) => getDayResult(day, state.goals, state.dayCriteria, state.resultThresholds, state.codexRules));
   const weights = recorded.map((day) => ({ day: day.day, value: number(day.weight) })).filter((item) => item.value);
   const allWeights = allRecorded.map((day) => ({ day: day.day, value: number(day.weight) })).filter((item) => item.value);
   const calories = recorded.map((day) => ({ day: day.day, value: number(day.calories) })).filter((item) => item.value);
@@ -572,7 +681,9 @@ export function calculateStats(state, currentDayIndex, range = '30') {
   const allActions = elapsed.flatMap((day) => (day.actions || []).filter(isActionComplete).map((action) => ({ ...action, day: day.day, date: day.date })));
   const courage = elapsed.flatMap((day) => (day.courageMoments || []).filter(isCourageComplete).map((moment) => ({ ...moment, day: day.day, date: day.date })));
   const goalStats = state.goals.filter((goal) => goal.active !== false || goal.createdDay <= elapsedDayNumber).map((goal) => calculateGoalStats(goal, state.days, state.tasks, elapsedDayNumber));
-  const xp = credited.reduce((sum, day) => sum + getDayResult(day, state.goals, state.dayCriteria, state.resultThresholds).xp, 0);
+  const codexStats = (state.codexRules || []).filter((rule) => rule.statsVisible !== false).map((rule) => calculateCodexStats(rule, state.days, elapsedDayNumber));
+  const xp = credited.reduce((sum, day) => sum + getDayResult(day, state.goals, state.dayCriteria, state.resultThresholds, state.codexRules).xp, 0);
+  const reflections = recorded.filter((day) => day.evidence?.trim().length >= 5);
   const avg = (items) => items.length ? Math.round(items.reduce((sum, item) => sum + item.value, 0) / items.length) : 0;
   return {
     elapsed,
@@ -581,6 +692,9 @@ export function calculateStats(state, currentDayIndex, range = '30') {
     closed,
     credited,
     goalStats,
+    codexStats,
+    reflections,
+    reflectionRate: recorded.length ? Math.round((reflections.length / recorded.length) * 100) : 0,
     weights,
     calories,
     activity,
@@ -602,7 +716,7 @@ export function calculateStats(state, currentDayIndex, range = '30') {
     weightProjection: calculateWeightProjection(allWeights, state.profile.targetWeight, elapsedDayNumber, durationDays),
     tasksDone: state.tasks.filter((task) => task.completedDay).length,
     tasksOpen: state.tasks.filter((task) => !task.completedDay && task.active !== false).length,
-    resultCounts: credited.reduce((acc, day) => { const result = getDayResult(day, state.goals, state.dayCriteria, state.resultThresholds); return { ...acc, [result.id]: (acc[result.id] || 0) + 1 }; }, {}),
+    resultCounts: credited.reduce((acc, day) => { const result = getDayResult(day, state.goals, state.dayCriteria, state.resultThresholds, state.codexRules); return { ...acc, [result.id]: (acc[result.id] || 0) + 1 }; }, {}),
   };
 }
 
@@ -641,11 +755,11 @@ export function buildMarathonSummary(state, extras = {}) {
 }
 
 export function buildExport(state, stats) {
-  const goalLines = stats.goalStats.map((item) => `- ${item.goal.name}: ${item.achieved}/${item.target} ${item.goal.unit}, прогресс ${item.progress}%, связанных задач ${item.completedTasks}, фактов действий ${item.actionCount}`);
+  const codexLines = stats.codexStats.map((item) => `- ${item.rule.title}: ${item.passed}/${item.recorded}, соблюдение ${item.completionRate}%, текущая серия ${item.streak}`);
   const dayLines = state.days.filter(hasDayData).map((day) => {
-    const result = getDayResult(day, state.goals, state.dayCriteria, state.resultThresholds);
-    const goals = state.goals.map((goal) => `${goal.name}: ${day.goalValues?.[goal.id] === true ? 'да' : day.goalValues?.[goal.id] === false ? 'нет' : day.goalValues?.[goal.id] ?? '-'}`).join('; ');
-    return `- День ${day.day} (${day.date}): ${result?.title || 'Заполнен частично'}, ${result?.score ?? day.score}%, ${result?.xp || 0} очков, ${day.closureMode === 'automatic' ? 'закрыт автоматически' : day.result ? 'закрыт вручную' : 'сохранён'}, вес ${day.weight || '-'}, калории ${day.calories || '-'}, активные ${day.activeCalories || '-'}, шаги ${day.steps || '-'}, цели [${goals}], доказательство: ${day.evidence || '-'}, действия: ${(day.actions || []).map((action) => action.text).join('; ') || '-'}, ситуации: ${(day.courageMoments || []).map((moment) => `${moment.situation} ${moment.before}->${moment.after}`).join('; ') || '-'}`;
+    const result = getDayResult(day, state.goals, state.dayCriteria, state.resultThresholds, state.codexRules);
+    const codex = (state.codexRules || []).filter((rule) => rule.scoreEnabled !== false && (!rule.startDate || rule.startDate <= day.date) && (!rule.endDate || rule.endDate >= day.date)).map((rule) => `${rule.title}: ${evaluateCodexRule(day, rule).passed ? 'да' : evaluateCodexRule(day, rule).answered ? 'нет' : '-'}`).join('; ');
+    return `- День ${day.day} (${day.date}): ${result?.title || 'Заполнен частично'}, ${result?.score ?? day.score}%, ${result?.xp || 0} очков, ${day.closureMode === 'automatic' ? 'закрыт автоматически' : day.result ? 'закрыт вручную' : 'сохранён'}, вес ${day.weight || '-'}, калории ${day.calories || '-'}, активные ${day.activeCalories || '-'}, шаги ${day.steps || '-'}, Кодекс [${codex}], победа дня: ${day.evidence || '-'}, действия: ${(day.actions || []).map((action) => action.text).join('; ') || '-'}, ситуации: ${(day.courageMoments || []).map((moment) => `${moment.situation} ${moment.before}->${moment.after}`).join('; ') || '-'}`;
   });
   const markdown = [
     `# Марафон ${state.durationDays || state.days.length} дней`,
@@ -660,8 +774,9 @@ export function buildExport(state, stats) {
     `Средний энергобаланс: ${stats.avgBalance} ккал`,
     `Карьерное решение: ${state.careerDecision.status}`,
     '',
-    '## Цели',
-    ...goalLines,
+    '## Мой кодекс',
+    ...codexLines,
+    `Рефлексия заполнена: ${stats.reflections.length}/${stats.recorded.length} дней (${stats.reflectionRate}%)`,
     '',
     '## Задачи',
     ...state.tasks.map((task) => `- ${task.completedDay ? '[x]' : '[ ]'} ${task.title}${task.goalId ? ` -> ${state.goals.find((goal) => goal.id === task.goalId)?.name || 'цель'}` : ''}${task.completedDay ? `, день ${task.completedDay}` : ''}`),

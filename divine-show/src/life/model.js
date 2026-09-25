@@ -23,9 +23,9 @@ function defaults() {
     ['recover', 'Следующий правильный выбор начинается сразу', 'text', 0, ''],
   ].map(([id, title, type, target, unit], order) => ({ id, title, type, target, unit, active: true, order, startDate: todayKey(), endDate: '', createdAt: INITIAL_TIME, updatedAt: INITIAL_TIME, deletedAt: null }));
   const vectors = [
-    { id: 'body', title: 'Тело', description: 'Видимый пресс, чистое питание и энергия.', current: 70, target: 65, unit: 'кг', milestone: '67 кг', imageUrl: '', color: '#16a36a' },
-    { id: 'profession', title: 'Профессия', description: 'Самостоятельный специалист по внедрению 1С в транспортном ЭДО.', current: 0, target: 100, unit: '%', milestone: 'Первый клиент в PROD', imageUrl: '', color: '#0d8fb9' },
-    { id: 'capital', title: 'Капитал', description: 'Финансовая опора и дом.', current: 187000, target: 5000000, unit: '₽', milestone: '250 000 ₽', imageUrl: '', color: '#d55784' },
+    { id: 'body', title: 'Тело', description: 'Видимый пресс, чистое питание и энергия.', start: 70, current: 70, target: 65, unit: 'кг', milestone: '67 кг', imageUrl: '', color: '#16a36a' },
+    { id: 'profession', title: 'Профессия', description: 'Самостоятельный специалист по внедрению 1С в транспортном ЭДО.', start: 0, current: 0, target: 100, unit: '%', milestone: 'Первый клиент в PROD', imageUrl: '', color: '#0d8fb9' },
+    { id: 'capital', title: 'Капитал', description: 'Финансовая опора и дом.', start: 0, current: 187000, target: 5000000, unit: '₽', milestone: '250 000 ₽', imageUrl: '', color: '#d55784' },
   ].map((item) => ({ ...item, createdAt: INITIAL_TIME, updatedAt: INITIAL_TIME, deletedAt: null }));
   const skills = skillGroups.flatMap(([groupId, group, names]) => names.map((title, index) => ({ id: `${groupId}-${index + 1}`, groupId, group, title, level: 0, evidences: [], createdAt: INITIAL_TIME, updatedAt: INITIAL_TIME, deletedAt: null })));
   return { version: 1, updatedAtClient: INITIAL_TIME, rules, ruleHistory: [], vectors, skills, wishes: [], events: [], books: [] };
@@ -41,7 +41,7 @@ export function normalizeLifeState(raw) {
     ...raw,
     rules: Array.isArray(raw.rules) ? raw.rules : base.rules,
     ruleHistory: Array.isArray(raw.ruleHistory) ? raw.ruleHistory : [],
-    vectors: Array.isArray(raw.vectors) ? raw.vectors : base.vectors,
+    vectors: Array.isArray(raw.vectors) ? raw.vectors.map((vector) => ({ ...vector, start: vector.start ?? vector.current ?? 0 })) : base.vectors,
     skills: Array.isArray(raw.skills) ? raw.skills : base.skills,
     wishes: Array.isArray(raw.wishes) ? raw.wishes : [],
     events: Array.isArray(raw.events) ? raw.events : [],
@@ -81,8 +81,10 @@ export const active = (item) => !item?.deletedAt;
 export const progressFor = (item) => {
   const current = number(item.current ?? item.saved);
   const target = number(item.target ?? item.price);
-  if (!target) return 0;
-  return Math.max(0, Math.min(100, Math.round(current / target * 100)));
+  const start = number(item.start ?? 0);
+  if (target === start) return current === target ? 100 : 0;
+  const progress = target < start ? (start - current) / (start - target) : (current - start) / (target - start);
+  return Math.max(0, Math.min(100, Math.round(progress * 100)));
 };
 
 export function addLifeEvent(state, event, now = new Date().toISOString()) {
