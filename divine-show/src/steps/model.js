@@ -69,6 +69,15 @@ export const levelFor = (id) => LEVELS.find((level) => level.id === id) || LEVEL
 export const categoryName = (state, id, fallback = 'Другое') => state.categories.find((category) => category.id === id)?.name || fallback;
 export const validScore = (value) => Number.isInteger(Number(value)) && Number(value) >= 0 && Number(value) <= 10 && String(value).trim() !== '';
 
+export function deleteStep(state, stepId, now = new Date().toISOString()) {
+  return {
+    ...state,
+    steps: state.steps.map((item) => item.id === stepId ? { ...item, deletedAt: now, updatedAt: now } : item),
+    executions: state.executions.map((item) => item.stepId === stepId ? { ...item, deletedAt: now, updatedAt: now } : item),
+    commitments: state.commitments.map((item) => item.stepId === stepId ? { ...item, deletedAt: now, updatedAt: now } : item),
+  };
+}
+
 export function weekBounds(date = todayKey()) {
   const weekday = (dateFromKey(date).getDay() + 6) % 7;
   const monday = addDays(date, -weekday);

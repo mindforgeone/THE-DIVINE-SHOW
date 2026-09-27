@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { achievementsFor, calculateStepsStats, completeStep, createStepsState, historyForStep, mergeStepsStates, periodBounds, takeStep } from '../src/steps/model.js';
+import { achievementsFor, calculateStepsStats, completeStep, createStepsState, deleteStep, historyForStep, mergeStepsStates, periodBounds, takeStep } from '../src/steps/model.js';
 
 const stamp = '2026-09-14T12:00:00.000Z';
 const makeStep = (id = 'step-1', difficulty = 'brave') => ({ id, title: 'Высказаться на встрече', description: '', notes: '', categoryId: 'work', difficulty, createdAt: stamp, updatedAt: stamp, archivedAt: null, deletedAt: null });
@@ -38,6 +38,17 @@ test('deleting a completion removes its derived statistics and achievements', ()
   const removed = { ...done, executions: [{ ...done.executions[0], deletedAt: '2026-09-15T12:00:00.000Z', updatedAt: '2026-09-15T12:00:00.000Z' }] };
   assert.equal(calculateStepsStats(removed, 'all', '2026-09-15').current.points, 0);
   assert.equal(achievementsFor(removed).find((item) => item.id === 'first').earnedAt, null);
+});
+
+test('deleting a step also removes its commitments and executions from statistics', () => {
+  let state = { ...createStepsState(), steps: [makeStep()] };
+  state = takeStep(state, 'step-1', 'today', '2026-09-14', {}, stamp);
+  state = completeStep(state, 'step-1', { before: 6, during: 4, after: 2 }, stamp, '2026-09-14');
+  const removed = deleteStep(state, 'step-1', '2026-09-15T12:00:00.000Z');
+  assert.ok(removed.steps[0].deletedAt);
+  assert.ok(removed.commitments[0].deletedAt);
+  assert.ok(removed.executions[0].deletedAt);
+  assert.equal(calculateStepsStats(removed, 'all', '2026-09-15').current.count, 0);
 });
 
 test('periods and commitments use calendar boundaries', () => {

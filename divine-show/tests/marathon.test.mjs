@@ -9,7 +9,14 @@ import { START_COMMITMENTS, acceptCommitments, commitmentsForDuration } from '..
 import { resolveAccountStorage } from '../src/marathon/accountStorage.js';
 import { mergeParticipantProfiles } from '../src/community/participantDirectory.js';
 import { migrateMemberState } from '../src/member/memberRules.js';
-import { loadFriendRequestOutbox, queueFriendRequest, removeFriendRequestFromOutbox } from '../src/community/friendRequestOutbox.js';
+import {
+  loadFriendRequestOutbox,
+  loadIncomingFriendRequests,
+  mergeFriendRequests,
+  queueFriendRequest,
+  removeFriendRequestFromOutbox,
+  removeIncomingFriendRequest,
+} from '../src/community/friendRequestOutbox.js';
 
 const START = '2026-09-06';
 const MORNING = '2026-09-06T07:00:00.000Z';
@@ -78,10 +85,14 @@ test('friend requests survive reloads until cloud delivery succeeds', () => {
     removeItem: (key) => values.delete(key),
   };
   try {
-    queueFriendRequest('sender', { id: 'sender__receiver', to: 'receiver', createdAtClient: EVENING });
+    queueFriendRequest('sender', { id: 'sender__receiver', from: 'sender', to: 'receiver', createdAtClient: EVENING });
     assert.equal(loadFriendRequestOutbox('sender')[0].to, 'receiver');
+    assert.equal(loadIncomingFriendRequests('receiver')[0].from, 'sender');
+    assert.equal(mergeFriendRequests([], loadIncomingFriendRequests('receiver'))[0].cloudConfirmed, false);
+    assert.equal(mergeFriendRequests([{ id: 'sender__receiver', from: 'sender', to: 'receiver', status: 'pending' }], loadIncomingFriendRequests('receiver'))[0].cloudConfirmed, true);
     assert.deepEqual(removeFriendRequestFromOutbox('sender', 'sender__receiver'), []);
     assert.deepEqual(loadFriendRequestOutbox('sender'), []);
+    assert.deepEqual(removeIncomingFriendRequest('receiver', 'sender__receiver'), []);
   } finally {
     if (previousStorage === undefined) delete globalThis.localStorage;
     else globalThis.localStorage = previousStorage;

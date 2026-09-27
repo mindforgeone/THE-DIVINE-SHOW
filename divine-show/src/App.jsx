@@ -45,9 +45,12 @@ import { useStepsStore } from './steps/useStepsStore';
 import StepsModule from './steps/StepsModule';
 import { useLifeStore } from './life/useLifeStore';
 import CourseModule from './life/CourseModule';
+import PlanningModule from './planning/PlanningModule';
+import AchievementsModule from './achievements/AchievementsModule';
 import MemberApp from './member/MemberApp';
 import DayDetailsModal from './marathon/DayDetailsModal';
 import { usePublicProfileSync } from './community/usePublicProfileSync';
+import { useFriendRequestNotifications } from './community/useFriendRequestNotifications';
 import { CodexPanel, CodexStats, EventsPanel, FocusActions, PatternsPanel } from './life/LifePanels';
 import { acceptCommitments, acceptMemberCommitments, commitmentsForDuration, memberCommitmentsForDuration } from './marathon/commitments';
 import journeyDawn from './assets/journey-dawn.jpg';
@@ -96,6 +99,7 @@ function AccountApp({ authSession }) {
   const adminUser = role === 'admin' ? user : null;
   const { state, history, ready: cloudReady, syncState, error: storageError, starting, currentDate, start, startNext, resetJourney, commit, retry } = useMarathonStore(user);
   usePublicProfileSync(user, cloudReady ? state : undefined);
+  const incomingFriendRequests = useFriendRequestNotifications(user?.uid);
   const stepsStore = useStepsStore(cloudReady && state?.contractAcceptedAt ? adminUser : null);
   const lifeStore = useLifeStore(cloudReady && state?.contractAcceptedAt ? adminUser : null);
   const [activeDayIndex, setActiveDayIndex] = useState(null);
@@ -125,7 +129,7 @@ function AccountApp({ authSession }) {
   if (!cloudReady) return <LoadingScreen key={user.uid} text="Загружаю историю" error={storageError} onRetry={retry} onLogOut={() => signOut(auth)} />;
   if (!state?.contractAcceptedAt) return <StartScreen member={role !== 'admin'} history={history} onStart={startJourney} starting={starting} error={storageError} onRetry={retry} onLogOut={() => signOut(auth)} />;
   if (state.completedAt) return <FinishedJourney summary={state.completionSummary || buildMarathonSummary(state)} history={history} onStartNext={startNext} onLogOut={() => signOut(auth)} />;
-  if (role !== 'admin') return <MemberApp user={user} state={state} commit={commit} currentDate={currentDate} syncState={syncState} onReset={resetJourney} onLogOut={() => signOut(auth)} />;
+  if (role !== 'admin') return <MemberApp user={user} state={state} commit={commit} currentDate={currentDate} syncState={syncState} incomingFriendRequests={incomingFriendRequests} onReset={resetJourney} onLogOut={() => signOut(auth)} />;
 
   const durationDays = state.durationDays || TOTAL_DAYS;
   const currentDayIndex = getCurrentDayIndex(state.startDate, currentDate, durationDays);
@@ -254,7 +258,7 @@ function AccountApp({ authSession }) {
   const resetCurrentJourney = async () => { setResetting(true); const succeeded = await resetJourney(); setResetting(false); if (!succeeded) setConfirmReset(false); };
 
   return (
-    <div className="min-h-screen bg-[#f4f7f8] text-[#102a43]">
+    <div className="min-h-screen overflow-x-hidden bg-[#f4f7f8] text-[#102a43]">
       <CompactHeader
         user={user}
         avatarUrl={state.profile?.photoUrl || user.photoURL}
@@ -262,6 +266,7 @@ function AccountApp({ authSession }) {
         totalDays={durationDays}
         progress={Math.round((currentDayNumber / durationDays) * 100)}
         syncState={syncState}
+        incomingFriendRequests={incomingFriendRequests}
         view={view}
         onView={setView}
         onExport={() => setShowExport(true)}
@@ -321,6 +326,10 @@ function AccountApp({ authSession }) {
           <StepsModule {...stepsStore} goals={state.goals} lifeState={lifeStore.state} newStepRequest={newStepRequest} />
         ) : view === 'course' ? (
           <CourseModule user={user} {...lifeStore} marathon={state} steps={stepsStore.state} />
+        ) : view === 'planning' ? (
+          <PlanningModule {...lifeStore} marathon={state} steps={stepsStore.state} />
+        ) : view === 'achievements' ? (
+          <AchievementsModule marathon={state} history={history} life={lifeStore.state} steps={stepsStore.state} />
         ) : view === 'stats' ? (
           <StatsDashboard
             user={user}
@@ -340,7 +349,7 @@ function AccountApp({ authSession }) {
         ) : <Suspense fallback={<div className="p-8 text-center font-black">Открываю пространство друзей…</div>}><CommunityModule user={user} privateState={state} /></Suspense>}
       </div>
 
-      <MobileNav view={view} onView={setView} onAdd={() => view === 'steps' ? setNewStepRequest((value) => value + 1) : setTaskEditorOpen(true)} />
+      <MobileNav view={view} onView={setView} incomingFriendRequests={incomingFriendRequests} onAdd={() => view === 'steps' ? setNewStepRequest((value) => value + 1) : setTaskEditorOpen(true)} />
 
       <AnimatePresence>
         {goalEditor && <GoalModal key="goal-editor" mode={goalEditor.mode} goal={goalEditor.goal} goals={state.goals} onSave={saveGoal} onArchive={archiveGoal} onClose={() => setGoalEditor(null)} />}
@@ -479,7 +488,7 @@ function CommitmentSummary({ commitments, totalDays }) {
   return <details className="border-y border-[#d8e3e7] py-3"><summary className="flex cursor-pointer items-center justify-between gap-3 text-sm font-bold text-[#16865f]"><span className="flex items-center gap-2"><Heart size={17} />Мой выбор на {totalDays} дней</span><ChevronDown size={17} /></summary><p className="mt-3 font-semibold leading-6">{commitments.purpose}</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{commitments.items.map((item) => <div key={item.id}><h3 className="text-sm font-bold">{item.title}</h3><p className="mt-1 text-sm leading-6 text-slate-600">{item.text}</p></div>)}</div></details>;
 }
 
-function CompactHeader({ user, avatarUrl, currentDay, totalDays, progress, syncState, view, onView, onExport, onReset, onLogOut }) {
+function CompactHeader({ user, avatarUrl, currentDay, totalDays, progress, syncState, view, incomingFriendRequests, onView, onExport, onReset, onLogOut }) {
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <header className="sticky top-0 z-40 border-b border-[#d9e4e8] bg-white/95 backdrop-blur-xl">
@@ -489,12 +498,14 @@ function CompactHeader({ user, avatarUrl, currentDay, totalDays, progress, syncS
           <div className="flex items-center justify-between gap-2 text-xs font-black text-slate-500"><span>День {currentDay} из {totalDays}</span><span>{progress}%</span></div>
           <div className="mt-1 h-2 overflow-hidden bg-[#e9eff2] rounded-sm"><motion.div className="h-full bg-[#16a36a]" animate={{ width: `${progress}%` }} /></div>
         </div>
-        <div className="hidden items-center gap-1 sm:flex">
+        <div className="hidden items-center gap-1 xl:flex">
           <NavButton active={view === 'today'} icon={<Home size={17} />} label="Сегодня" onClick={() => onView('today')} />
+          <NavButton active={view === 'planning'} icon={<CalendarDays size={17} />} label="План" onClick={() => onView('planning')} />
           <NavButton active={view === 'steps'} icon={<Footprints size={17} />} label="Шаги" onClick={() => onView('steps')} />
           <NavButton active={view === 'course'} icon={<Compass size={17} />} label="Курс" onClick={() => onView('course')} />
           <NavButton active={view === 'stats'} icon={<BarChart3 size={17} />} label="Статистика" onClick={() => onView('stats')} />
-          <NavButton active={view === 'friends'} icon={<Users size={17} />} label="Друзья" onClick={() => onView('friends')} />
+          <NavButton active={view === 'achievements'} icon={<Trophy size={17} />} label="Итоги" onClick={() => onView('achievements')} />
+          <NavButton active={view === 'friends'} icon={<Users size={17} />} label="Друзья" badge={incomingFriendRequests} onClick={() => onView('friends')} />
         </div>
         <span role="status" aria-label={syncState === 'offline' ? 'Сохранено на устройстве, ожидает синхронизации' : syncState === 'saving' ? 'Сохраняю в облако' : 'Сохранено в облаке'} className={`h-2.5 w-2.5 shrink-0 rounded-full ${syncState === 'offline' ? 'bg-rose-500' : syncState === 'saving' ? 'animate-pulse bg-amber-400' : 'bg-emerald-500'}`} title={syncState === 'offline' ? 'Сохранено на устройстве' : syncState === 'saving' ? 'Сохраняю в облако' : 'Сохранено в облаке'} />
         {avatarUrl ? <img src={avatarUrl} alt={user.displayName || 'Аватар'} className="h-10 w-10 shrink-0 border border-[#d9e4e8] bg-[#edf4f6] object-cover rounded-md" title={user.displayName || user.email || 'Профиль'} /> : <span className="grid h-10 w-10 shrink-0 place-items-center bg-[#eaf8fd] font-black text-[#0d7ea5] rounded-md" title={user.email || 'Профиль'}>{(user.displayName || user.email || 'Я').trim().charAt(0).toUpperCase()}</span>}
@@ -507,20 +518,20 @@ function CompactHeader({ user, avatarUrl, currentDay, totalDays, progress, syncS
   );
 }
 
-function NavButton({ active, icon, label, onClick }) {
-  return <button type="button" onClick={onClick} className={`inline-flex min-h-[40px] items-center gap-2 px-3 text-sm font-black rounded-md ${active ? 'bg-[#102a43] text-white' : 'text-slate-600 hover:bg-[#f1f5f7]'}`}>{icon}{label}</button>;
+function NavButton({ active, icon, label, badge = 0, onClick }) {
+  return <button type="button" onClick={onClick} className={`relative inline-flex min-h-[40px] items-center gap-2 px-3 text-sm font-black rounded-md ${active ? 'bg-[#102a43] text-white' : 'text-slate-600 hover:bg-[#f1f5f7]'}`}>{icon}{label}{badge > 0 && <span className="grid h-5 min-w-5 place-items-center bg-[#d9405c] px-1 text-[10px] text-white rounded-full" aria-label={`${badge} новых запросов`}>{badge}</span>}</button>;
 }
 
 function MenuItem({ icon, label, danger = false, onClick }) {
   return <button type="button" onClick={onClick} className={`flex min-h-[42px] w-full items-center gap-3 px-3 text-left text-sm font-black hover:bg-[#f1f5f7] rounded-md ${danger ? 'text-rose-600' : 'text-slate-700'}`}>{icon}{label}</button>;
 }
 
-function MobileNav({ view, onView }) {
-  return <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#d9e4e8] bg-white/95 px-2 py-2 backdrop-blur-xl sm:hidden"><div className="mx-auto grid max-w-md grid-cols-5 gap-1"><MobileNavButton active={view === 'today'} icon={<Home />} label="Сегодня" onClick={() => onView('today')} /><MobileNavButton active={view === 'steps'} icon={<Footprints />} label="Шаги" onClick={() => onView('steps')} /><MobileNavButton active={view === 'course'} icon={<Compass />} label="Курс" onClick={() => onView('course')} /><MobileNavButton active={view === 'stats'} icon={<BarChart3 />} label="Статистика" onClick={() => onView('stats')} /><MobileNavButton active={view === 'friends'} icon={<Users />} label="Друзья" onClick={() => onView('friends')} /></div></nav>;
+function MobileNav({ view, incomingFriendRequests, onView }) {
+  return <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#d9e4e8] bg-white/95 px-2 py-2 backdrop-blur-xl xl:hidden"><div className="mx-auto flex max-w-3xl gap-1 overflow-x-auto"><MobileNavButton active={view === 'today'} icon={<Home />} label="Сегодня" onClick={() => onView('today')} /><MobileNavButton active={view === 'planning'} icon={<CalendarDays />} label="План" onClick={() => onView('planning')} /><MobileNavButton active={view === 'steps'} icon={<Footprints />} label="Шаги" onClick={() => onView('steps')} /><MobileNavButton active={view === 'course'} icon={<Compass />} label="Курс" onClick={() => onView('course')} /><MobileNavButton active={view === 'stats'} icon={<BarChart3 />} label="Статистика" onClick={() => onView('stats')} /><MobileNavButton active={view === 'achievements'} icon={<Trophy />} label="Итоги" onClick={() => onView('achievements')} /><MobileNavButton active={view === 'friends'} icon={<Users />} label="Друзья" badge={incomingFriendRequests} onClick={() => onView('friends')} /></div></nav>;
 }
 
-function MobileNavButton({ active, icon, label, onClick }) {
-  return <button type="button" onClick={onClick} className={`flex min-h-[48px] flex-col items-center justify-center gap-1 text-[11px] font-black rounded-md ${active ? 'bg-[#eaf8fd] text-[#0d8fb9]' : 'text-slate-500'}`}>{icon}{label}</button>;
+function MobileNavButton({ active, icon, label, badge = 0, onClick }) {
+  return <button type="button" onClick={onClick} className={`relative flex min-h-[50px] min-w-[70px] flex-1 flex-col items-center justify-center gap-1 px-1 text-[11px] font-black rounded-md ${active ? 'bg-[#eaf8fd] text-[#0d8fb9]' : 'text-slate-500'}`}>{icon}{label}{badge > 0 && <span className="absolute right-1 top-0 grid h-5 min-w-5 place-items-center bg-[#d9405c] px-1 text-[10px] text-white rounded-full" aria-label={`${badge} новых запросов`}>{badge}</span>}</button>;
 }
 
 function JourneyMap({ days, goals, codexRules, criteria, thresholds, currentDayIndex, selectedIndex, totalDays, onSelect, stats }) {

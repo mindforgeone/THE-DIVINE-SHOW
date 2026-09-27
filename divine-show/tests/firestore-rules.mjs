@@ -69,6 +69,10 @@ addCustom('signed in can discover public profiles', `publicProfiles/${owner.uid}
 addCustom('owner can publish own profile', `publicProfiles/${owner.uid}`, 'create', { uid: owner.uid }, 'ALLOW', {}, { uid: owner.uid, discoverable: true });
 addCustom('other cannot overwrite public profile', `publicProfiles/${owner.uid}`, 'update', { uid: 'rules-test-other' }, 'DENY', { uid: owner.uid }, { uid: owner.uid, displayName: 'Other' });
 addCustom('signed out cannot discover public profiles', `publicProfiles/${owner.uid}`, 'get', null, 'DENY', { uid: owner.uid, discoverable: true });
+addCustom('owner can read own friend profile', `friendProfiles/${owner.uid}`, 'get', { uid: owner.uid }, 'ALLOW', { uid: owner.uid, completionRate: 50 });
+addCustom('admin can inspect friend profile', `friendProfiles/${owner.uid}`, 'get', { uid: adminUid }, 'ALLOW', { uid: owner.uid, completionRate: 50 });
+addCustom('non-friend cannot read friend profile', `friendProfiles/${owner.uid}`, 'get', { uid: 'rules-test-other' }, 'DENY', { uid: owner.uid, completionRate: 50 });
+addCustom('other cannot overwrite friend profile', `friendProfiles/${owner.uid}`, 'update', { uid: 'rules-test-other' }, 'DENY', { uid: owner.uid }, { uid: owner.uid, completionRate: 100 });
 
 const participants = [owner.uid, 'rules-test-friend'];
 addCustom('participant can read friend request', 'friendRequests/example', 'get', { uid: owner.uid }, 'ALLOW', { from: owner.uid, to: 'rules-test-friend', participants, status: 'pending' });

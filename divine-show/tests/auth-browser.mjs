@@ -13,7 +13,7 @@ await mkdir(output, { recursive: true });
 const user = { uid: 'auth-test-owner', email: 'auth-owner@example.test' };
 const state = createInitialState('2026-09-06', '2026-09-06T08:00:00Z');
 state.days[2].weight = '69.2';
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) });
 const pageErrors = [];
 
 const authStub = `
@@ -43,11 +43,15 @@ const isSteps = (path) => path.endsWith('/trackers/steps-v1');
 const isLife = (path) => path.endsWith('/trackers/life-v1');
 const isHistory = (path) => path.endsWith('/trackers/marathon-history-v1');
 const isCurrent = (path) => path.endsWith('/trackers/marathon-current-v11');
+const isCollection = (path) => ['friendRequests', 'publicProfiles', 'friendships', 'conversations', 'challenges'].includes(path);
 const dataFor = (path) => isSteps(path) ? cloud.stepsDocument : isLife(path) ? cloud.lifeDocument : isHistory(path) ? cloud.historyDocument : cloud.document;
-const snapshot = (path) => { const data = dataFor(path); return { exists: () => Boolean(data), data: () => data, metadata: { fromCache: false, hasPendingWrites: false } }; };
+const snapshot = (path) => { if (isCollection(path)) return { docs: [], metadata: { fromCache: false, hasPendingWrites: false } }; const data = dataFor(path); return { exists: () => Boolean(data), data: () => data, metadata: { fromCache: false, hasPendingWrites: false } }; };
 cloud.emit = () => { for (const item of subscribers) item.callback(snapshot(item.path)); };
 cloud.fail = (code) => { for (const item of [...subscribers]) if (isCurrent(item.path)) item.onError({ code }); };
 export const doc = (_db, ...parts) => parts.join('/');
+export const collection = (_db, ...parts) => parts.join('/');
+export const query = (path) => path;
+export const where = (...parts) => parts;
 export const getFirestore = () => ({});
 export const serverTimestamp = () => new Date().toISOString();
 export const setDoc = async () => {};
@@ -142,9 +146,10 @@ try {
   await focusStorm(page);
   assert.equal(await page.evaluate(() => window.__cloudTest.transactions), 1, 'Phone focus and same-UID notifications must not restart initialization');
   await page.evaluate(() => { window.__cloudTest.holdTransaction = false; window.__cloudTest.release(); });
-  await page.waitForFunction(() => window.__cloudTest.subscriptions === 2);
+  await page.waitForFunction(() => window.__cloudTest.subscriptions >= 3);
+  const pendingSubscriptions = await page.evaluate(() => window.__cloudTest.subscriptions);
   await focusStorm(page);
-  assert.equal(await page.evaluate(() => window.__cloudTest.subscriptions), 2, 'Keep the pending Firebase listeners');
+  assert.equal(await page.evaluate(() => window.__cloudTest.subscriptions), pendingSubscriptions, 'Keep the pending Firebase listeners and friend request notifications');
   await page.clock.fastForward(13000);
   await page.getByRole('button', { name: 'Повторить загрузку', exact: true }).waitFor();
   await page.evaluate(() => window.__cloudTest.fail('permission-denied'));
@@ -158,6 +163,7 @@ try {
   assert.equal(await page.getByRole('spinbutton', { name: 'Вес, кг', exact: true }).inputValue(), '69.2');
   assert.equal(await page.evaluate(() => window.__cloudTest.transactions), 1, 'Retry must not rerun the completed reset transaction');
   await page.getByRole('spinbutton', { name: 'Калории', exact: true }).fill('1850');
+  assert.equal(await page.getByRole('spinbutton', { name: 'Калории', exact: true }).inputValue(), '1850', 'Input must update before the network fails');
   await page.evaluate(() => window.__cloudTest.fail('unavailable'));
   await page.getByText('Аккаунт остаётся подключён.', { exact: false }).waitFor();
   await page.getByRole('button', { name: 'Повторить синхронизацию', exact: true }).click();

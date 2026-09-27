@@ -1,20 +1,30 @@
 import { useEffect, useMemo, useState } from 'react';
 import { addDoc, collection, doc, getDocs, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
-import { AlertCircle, Award, Camera, Check, Eye, Loader2, MessageCircle, Plus, Send, ShieldCheck, Swords, UserPlus, Users, X } from 'lucide-react';
+import { AlertCircle, Award, Bell, Camera, Check, Eye, Loader2, LockKeyhole, MessageCircle, Plus, Send, ShieldCheck, Swords, UserCheck, UserPlus, Users, X } from 'lucide-react';
 import { db } from '../firebase';
 import { roleForUser } from '../auth/roles';
 import { createId, number } from '../marathon/model';
 import { MeasurementDashboard, ProgressPhotoGallery } from '../member/BodyProgress';
 import { mergeParticipantProfiles } from './participantDirectory';
-import { loadFriendRequestOutbox, queueFriendRequest, removeFriendRequestFromOutbox } from './friendRequestOutbox';
+import {
+  FRIEND_REQUESTS_CHANGED,
+  loadFriendRequestOutbox,
+  loadIncomingFriendRequests,
+  mergeFriendRequests,
+  queueFriendRequest,
+  removeFriendRequestFromOutbox,
+  removeIncomingFriendRequest,
+} from './friendRequestOutbox';
 
 const friendshipId = (first, second) => [first, second].sort().join('__');
 
 export default function CommunityModule({ user }) {
   const [tab, setTab] = useState('people');
   const [profiles, setProfiles] = useState(() => mergeParticipantProfiles());
-  const [requests, setRequests] = useState([]);
+  const [cloudRequests, setCloudRequests] = useState([]);
+  const [localIncoming, setLocalIncoming] = useState(() => loadIncomingFriendRequests(user.uid));
   const [friendships, setFriendships] = useState([]);
+  const [friendProfiles, setFriendProfiles] = useState({});
   const [conversations, setConversations] = useState([]);
   const [challenges, setChallenges] = useState([]);
   const [activeChat, setActiveChat] = useState(null);
@@ -33,12 +43,23 @@ export default function CommunityModule({ user }) {
     if (!db || !uid) return undefined;
     const unsubscribers = [
       onSnapshot(collection(db, 'publicProfiles'), (snapshot) => setProfiles(mergeParticipantProfiles(snapshot.docs.map((item) => item.data())))),
-      onSnapshot(query(collection(db, 'friendRequests'), where('participants', 'array-contains', uid)), { includeMetadataChanges: true }, (snapshot) => { setRequests(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))); setRequestsSyncing(snapshot.metadata.hasPendingWrites); }, () => setCloudMessage('Не удалось загрузить запросы в друзья. Проверь подключение к Firebase.')),
+      onSnapshot(query(collection(db, 'friendRequests'), where('participants', 'array-contains', uid)), { includeMetadataChanges: true }, (snapshot) => { setCloudRequests(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))); setRequestsSyncing(snapshot.metadata.hasPendingWrites); }, () => setCloudMessage('Не удалось загрузить запросы в друзья. Проверь подключение к Firebase.')),
       onSnapshot(query(collection(db, 'friendships'), where('members', 'array-contains', uid)), (snapshot) => setFriendships(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))),
       onSnapshot(query(collection(db, 'conversations'), where('members', 'array-contains', uid)), (snapshot) => setConversations(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))),
       onSnapshot(query(collection(db, 'challenges'), where('participants', 'array-contains', uid)), (snapshot) => setChallenges(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))),
     ];
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [uid]);
+
+  useEffect(() => {
+    const refresh = () => setLocalIncoming(loadIncomingFriendRequests(uid));
+    refresh();
+    window.addEventListener('storage', refresh);
+    window.addEventListener(FRIEND_REQUESTS_CHANGED, refresh);
+    return () => {
+      window.removeEventListener('storage', refresh);
+      window.removeEventListener(FRIEND_REQUESTS_CHANGED, refresh);
+    };
   }, [uid]);
 
   useEffect(() => {
@@ -72,6 +93,20 @@ export default function CommunityModule({ user }) {
 
   const profileById = (id) => profiles.find((item) => item.uid === id) || { uid: id, displayName: 'Участник', photoUrl: '' };
   const friendIds = useMemo(() => [...new Set(friendships.flatMap((item) => item.members || []).filter((id) => id !== uid))], [friendships, uid]);
+  const requests = useMemo(() => mergeFriendRequests(cloudRequests, localIncoming), [cloudRequests, localIncoming]);
+  const incoming = requests.filter((item) => item.to === uid && item.status === 'pending');
+  const friendProfileById = (id) => ({ ...profileById(id), ...(friendProfiles[id] || {}) });
+
+  useEffect(() => {
+    if (!db || !friendIds.length) return undefined;
+    const unsubscribers = friendIds.map((friendUid) => onSnapshot(
+      doc(db, 'friendProfiles', friendUid),
+      (snapshot) => setFriendProfiles((current) => ({ ...current, [friendUid]: snapshot.exists() ? snapshot.data() : {} })),
+      () => {},
+    ));
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [friendIds]);
+
   const pendingByUser = (id) => requests.find((item) => item.status === 'pending' && item.participants?.includes(id)) || queuedRequests.find((item) => item.to === id);
   const requestFriend = async (to) => {
     const id = friendshipId(uid, to);
@@ -89,11 +124,17 @@ export default function CommunityModule({ user }) {
   const answerRequest = async (request, accepted) => {
     setCloudMessage('');
     try {
-      if (!accepted) { await updateDoc(doc(db, 'friendRequests', request.id), { status: 'declined', answeredAt: serverTimestamp() }); return; }
+      if (!accepted) {
+        await updateDoc(doc(db, 'friendRequests', request.id), { status: 'declined', answeredAt: serverTimestamp() });
+        setLocalIncoming(removeIncomingFriendRequest(uid, request.id));
+        setCloudMessage('Запрос отклонён.');
+        return;
+      }
       const batch = writeBatch(db);
       batch.update(doc(db, 'friendRequests', request.id), { status: 'accepted', answeredAt: serverTimestamp() });
       batch.set(doc(db, 'friendships', friendshipId(request.from, request.to)), { members: [request.from, request.to], createdAt: serverTimestamp(), createdAtClient: new Date().toISOString() });
       await batch.commit();
+      setLocalIncoming(removeIncomingFriendRequest(uid, request.id));
       setCloudMessage('Запрос принят. Участник добавлен в друзья.');
     } catch {
       setCloudMessage('Firebase пока не подтвердил действие. Оно завершится после восстановления синхронизации.');
@@ -129,9 +170,11 @@ export default function CommunityModule({ user }) {
   };
 
   return <div className="grid gap-4">
-    <section className="border border-[#cfe0dc] bg-white p-4 rounded-lg"><div className="flex items-center gap-3"><Users size={22} className="text-[#0d8b71]" /><div><div className="text-sm font-black text-[#0d735f]">Вместе</div><h1 className="text-2xl font-black">Участники и друзья</h1></div></div><p className="mt-2 text-sm font-semibold leading-6 text-slate-500">Все участники видят друг друга. В друзьях открывается больше прогресса, личные сообщения и совместные вызовы.</p><div className="mt-4 grid grid-cols-3 gap-1 bg-[#edf4f2] p-1 rounded-md">{[['people', 'Участники'], ['messages', 'Сообщения'], ['challenges', 'Вызовы']].map(([id, label]) => <button key={id} type="button" onClick={() => setTab(id)} className={`min-h-10 text-xs font-black rounded-sm ${tab === id ? 'bg-[#15333b] text-white' : 'text-slate-500'}`}>{label}</button>)}</div></section>
+    <section className="border border-[#cfe0dc] bg-white p-4 rounded-lg"><div className="flex items-center gap-3"><Users size={22} className="text-[#0d8b71]" /><div><div className="text-sm font-black text-[#0d735f]">Вместе</div><h1 className="text-2xl font-black">Участники и друзья</h1></div></div><p className="mt-2 text-sm font-semibold leading-6 text-slate-500">В общем списке видны только имя, аватар и статус маршрута. Прогресс, сообщения и вызовы открываются после добавления в друзья.</p><div className="mt-4 grid grid-cols-4 gap-1 bg-[#edf4f2] p-1 rounded-md">{[['people', 'Участники'], ['friends', 'Друзья'], ['messages', 'Сообщения'], ['challenges', 'Вызовы']].map(([id, label]) => <button key={id} type="button" onClick={() => setTab(id)} className={`relative min-h-11 px-1 text-[11px] font-black rounded-sm sm:text-xs ${tab === id ? 'bg-[#15333b] text-white' : 'text-slate-500'}`}>{label}{id === 'friends' && incoming.length > 0 && <span className="absolute right-1 top-1 grid h-5 min-w-5 place-items-center bg-[#d9405c] px-1 text-[10px] text-white rounded-full" aria-label={`${incoming.length} новых запросов`}>{incoming.length}</span>}</button>)}</div></section>
+    {incoming.length > 0 && <IncomingRequests items={incoming} profileById={profileById} onAnswer={answerRequest} onOpenFriends={() => setTab('friends')} />}
     {(cloudMessage || waitingForCloud) && <div role="status" className={`flex items-start gap-2 border p-3 text-sm font-bold leading-6 rounded-lg ${waitingForCloud ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-[#b9ddd3] bg-[#eaf8f4] text-[#0d735f]'}`}><AlertCircle size={18} className="mt-0.5 shrink-0" />{waitingForCloud ? 'Запрос ожидает подтверждения облаком. Он сохранён на устройстве и будет доставлен автоматически.' : cloudMessage}</div>}
-    {tab === 'people' && <People profiles={profiles.filter((item) => item.uid !== uid)} requests={requests} friendIds={friendIds} currentUid={uid} admin={admin} requestsSyncing={waitingForCloud} pendingByUser={pendingByUser} onRequest={requestFriend} onAnswer={answerRequest} onMessage={openChat} onInspect={inspect} onChallenge={(friendUid) => setChallengeDraft({ participants: [friendUid] })} />}
+    {tab === 'people' && <People profiles={profiles.filter((item) => item.uid !== uid)} friendIds={friendIds} admin={admin} requestsSyncing={waitingForCloud} pendingByUser={pendingByUser} onRequest={requestFriend} onInspect={inspect} onOpenFriends={() => setTab('friends')} />}
+    {tab === 'friends' && <Friends friendIds={friendIds} profileById={friendProfileById} onMessage={openChat} onInspect={inspect} onChallenge={(friendUid) => setChallengeDraft({ participants: [friendUid] })} />}
     {tab === 'messages' && <Messages conversations={conversations} active={activeChat} messages={messages} uid={uid} profileById={profileById} text={text} onText={setText} onOpen={setActiveChat} onSend={send} />}
     {tab === 'challenges' && <Challenges items={challenges} uid={uid} profileById={profileById} friendIds={friendIds} onOpen={() => setChallengeDraft({ participants: [] })} onChat={(item) => { setActiveChat({ id: item.chatId, members: item.participants, title: item.title, type: 'challenge' }); setTab('messages'); }} />}
     {challengeDraft && <ChallengeEditor friendIds={friendIds} profileById={profileById} initialParticipants={challengeDraft.participants} onClose={() => setChallengeDraft(null)} onSave={async (draft) => { const id = createId('challenge'); const participants = [uid, ...draft.participants]; const chatId = `challenge__${id}`; const batch = writeBatch(db); batch.set(doc(db, 'challenges', id), { ...draft, createdBy: uid, participants, chatId, status: 'active', createdAtClient: new Date().toISOString(), createdAt: serverTimestamp() }); batch.set(doc(db, 'conversations', chatId), { members: participants, title: draft.title, type: 'challenge', createdAtClient: new Date().toISOString(), createdAt: serverTimestamp() }); await batch.commit(); setChallengeDraft(null); }} />}
@@ -139,18 +182,28 @@ export default function CommunityModule({ user }) {
   </div>;
 }
 
-function People({ profiles, requests, friendIds, currentUid, admin, requestsSyncing, pendingByUser, onRequest, onAnswer, onMessage, onInspect, onChallenge }) {
-  const incoming = requests.filter((item) => item.to === currentUid && item.status === 'pending');
-  return <div className="grid gap-4">
-    {incoming.length > 0 && <section className="border border-[#b9ddd3] bg-[#eaf8f4] p-4 rounded-lg"><h2 className="font-black">Запросы в друзья</h2><div className="mt-3 grid gap-2">{incoming.map((request) => { const sender = profiles.find((profile) => profile.uid === request.from); return <div key={request.id} className="flex items-center gap-3 bg-white p-3 rounded-md"><Avatar src={sender?.photoUrl} compact /><span className="min-w-0 flex-1 font-black">{sender?.displayName || 'Участник'}</span><button type="button" onClick={() => onAnswer(request, true)} className="icon-command text-emerald-600" title="Принять"><Check size={17} /></button><button type="button" onClick={() => onAnswer(request, false)} className="icon-command danger" title="Отклонить"><X size={17} /></button></div>; })}</div></section>}
-    <section className="grid gap-3 sm:grid-cols-2">{profiles.map((profile) => { const friend = friendIds.includes(profile.uid); const pending = pendingByUser(profile.uid); return <ProfileCard key={profile.uid} profile={profile} expanded={friend || admin}><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => onInspect(profile)} className="inline-flex min-h-10 items-center justify-center gap-2 border border-[#cfe0dc] bg-white px-3 text-sm font-black rounded-md"><Eye size={16} />{admin ? 'Проверить' : 'Подробнее'}</button>{friend ? <><button type="button" onClick={() => onMessage(profile.uid)} className="inline-flex min-h-10 items-center justify-center gap-2 bg-[#15333b] px-3 text-sm font-black text-white rounded-md"><MessageCircle size={16} />Написать</button><button type="button" onClick={() => onChallenge(profile.uid)} className="col-span-2 inline-flex min-h-10 items-center justify-center gap-2 bg-[#b6506b] px-3 text-sm font-black text-white rounded-md"><Swords size={16} />Бросить вызов</button></> : <button type="button" disabled={Boolean(pending)} onClick={() => onRequest(profile.uid)} className="inline-flex min-h-10 items-center justify-center gap-2 border border-[#b9ddd3] bg-[#eaf8f4] px-3 text-sm font-black text-[#0d735f] disabled:opacity-60 rounded-md"><UserPlus size={16} />{pending ? requestsSyncing ? 'Ждёт облако' : 'Отправлен' : 'В друзья'}</button>}</div></ProfileCard>; })}{!profiles.length && <Empty text="Других участников пока нет. Они появятся здесь после первого входа в приложение." />}</section>
-  </div>;
+function IncomingRequests({ items, profileById, onAnswer, onOpenFriends }) {
+  return <section className="border-2 border-[#ee7890] bg-[#fff2f5] p-4 shadow-sm rounded-lg" aria-label="Новые запросы в друзья"><div className="flex items-start gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center bg-[#d9405c] text-white rounded-md"><Bell size={21} /></span><div className="min-w-0 flex-1"><div className="text-xs font-black uppercase text-[#a52b45]">Новый запрос</div><h2 className="text-xl font-black">Вас хотят добавить в друзья</h2></div><button type="button" onClick={onOpenFriends} className="text-xs font-black text-[#a52b45]">Друзья</button></div><div className="mt-3 grid gap-2">{items.map((request) => { const sender = profileById(request.from); const confirmed = request.cloudConfirmed !== false; return <div key={request.id} className="grid grid-cols-[44px_minmax(0,1fr)] gap-3 bg-white p-3 rounded-md"><Avatar src={sender.photoUrl} compact /><span className="min-w-0 self-center"><strong className="block truncate">{sender.displayName}</strong><small className={`mt-1 block font-bold leading-5 ${confirmed ? 'text-[#0d735f]' : 'text-amber-700'}`}>{confirmed ? 'Запрос можно принять' : 'Получен на устройстве, ожидает облака'}</small></span><div className="col-span-2 grid grid-cols-[minmax(0,1fr)_44px] gap-2"><button type="button" disabled={!confirmed} onClick={() => onAnswer(request, true)} className="inline-flex min-h-10 items-center justify-center gap-2 bg-[#0d8b71] px-3 text-sm font-black text-white disabled:bg-slate-300 rounded-md"><Check size={17} />Принять</button><button type="button" disabled={!confirmed} onClick={() => onAnswer(request, false)} className="icon-command danger disabled:opacity-40" title="Отклонить"><X size={17} /></button></div></div>; })}</div></section>;
 }
 
-function ProfileCard({ profile, expanded, children }) {
+function People({ profiles, friendIds, admin, requestsSyncing, pendingByUser, onRequest, onInspect, onOpenFriends }) {
+  return <section className="grid gap-3 sm:grid-cols-2">{profiles.map((profile) => { const friend = friendIds.includes(profile.uid); const pending = pendingByUser(profile.uid); return <ParticipantCard key={profile.uid} profile={profile}><div className="grid grid-cols-2 gap-2">{admin ? <button type="button" onClick={() => onInspect(profile)} className="col-span-2 inline-flex min-h-10 items-center justify-center gap-2 border border-[#cfe0dc] bg-white px-3 text-sm font-black rounded-md"><Eye size={16} />Проверить участника</button> : friend ? <button type="button" onClick={onOpenFriends} className="col-span-2 inline-flex min-h-10 items-center justify-center gap-2 border border-[#b9ddd3] bg-[#eaf8f4] px-3 text-sm font-black text-[#0d735f] rounded-md"><UserCheck size={16} />Уже в друзьях</button> : <button type="button" disabled={Boolean(pending)} onClick={() => onRequest(profile.uid)} className="col-span-2 inline-flex min-h-10 items-center justify-center gap-2 border border-[#b9ddd3] bg-[#eaf8f4] px-3 text-sm font-black text-[#0d735f] disabled:opacity-60 rounded-md"><UserPlus size={16} />{pending ? requestsSyncing ? 'Ждёт облако' : 'Запрос отправлен' : 'В друзья'}</button>}</div></ParticipantCard>; })}{!profiles.length && <Empty text="Других участников пока нет. Они появятся здесь после первого входа в приложение." />}</section>;
+}
+
+function Friends({ friendIds, profileById, onMessage, onInspect, onChallenge }) {
+  if (!friendIds.length) return <Empty text="Здесь появятся подтверждённые друзья. После дружбы откроются прогресс, сообщения и совместные вызовы." />;
+  return <section className="grid gap-3 sm:grid-cols-2">{friendIds.map((id) => { const profile = profileById(id); return <ProfileCard key={id} profile={profile}><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => onInspect(profile)} className="inline-flex min-h-10 items-center justify-center gap-2 border border-[#cfe0dc] bg-white px-3 text-sm font-black rounded-md"><Eye size={16} />Прогресс</button><button type="button" onClick={() => onMessage(id)} className="inline-flex min-h-10 items-center justify-center gap-2 bg-[#15333b] px-3 text-sm font-black text-white rounded-md"><MessageCircle size={16} />Написать</button><button type="button" onClick={() => onChallenge(id)} className="col-span-2 inline-flex min-h-10 items-center justify-center gap-2 bg-[#b6506b] px-3 text-sm font-black text-white rounded-md"><Swords size={16} />Бросить вызов</button></div></ProfileCard>; })}</section>;
+}
+
+function ParticipantCard({ profile, children }) {
+  const route = profile.journeyStatus === 'active' ? `Маршрут начат${profile.durationDays ? ` · ${profile.durationDays} дней` : ''}` : profile.journeyStatus === 'completed' ? 'Маршрут завершён' : 'Маршрут не начат';
+  return <article className="border border-[#cfe0dc] bg-white p-4 rounded-lg"><div className="flex items-center gap-3"><Avatar src={profile.photoUrl} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="truncate font-black">{profile.displayName}</h2>{profile.role === 'admin' && <span className="bg-[#eaf8fd] px-2 py-1 text-[9px] font-black uppercase text-[#0d7ea5] rounded-sm">Администратор</span>}</div><p className="mt-1 text-xs font-black text-[#0d735f]">{route}</p></div><LockKeyhole size={17} className="shrink-0 text-slate-300" aria-label="Подробности видны только друзьям" /></div><div className="mt-3">{children}</div></article>;
+}
+
+function ProfileCard({ profile, children }) {
   const medals = [profile.strongDays >= 7 && '7 сильных дней', profile.completionRate >= 80 && 'Курс 80%+', profile.totalSteps >= 100000 && '100 000 шагов'].filter(Boolean);
   const route = profile.durationDays ? `${profile.durationDays} дней · день ${profile.journeyDay || 1}` : 'Маршрут не начат';
-  return <article className="border border-[#cfe0dc] bg-white p-4 rounded-lg"><div className="flex items-start gap-3"><Avatar src={profile.photoUrl} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="truncate font-black">{profile.displayName}</h2>{profile.role === 'admin' && <span className="bg-[#eaf8fd] px-2 py-1 text-[9px] font-black uppercase text-[#0d7ea5] rounded-sm">Администратор</span>}</div><p className="mt-1 text-xs font-black text-[#0d735f]">{route}</p><p className="mt-1 line-clamp-2 text-xs font-semibold text-slate-500">{profile.bio || 'Идёт своим маршрутом'}</p></div></div><div className="mt-3 grid grid-cols-3 gap-1 text-center"><Mini label="Путь" value={profile.completionRate === null ? 'скрыто' : `${profile.completionRate || 0}%`} /><Mini label="Сильных" value={profile.strongDays ?? '—'} /><Mini label="Вес" value={profile.currentWeight ? `${profile.currentWeight} кг` : 'скрыто'} /></div>{expanded && <div className="mt-1 grid grid-cols-3 gap-1 text-center"><Mini label="Шагов / день" value={profile.avgSteps ? profile.avgSteps.toLocaleString('ru-RU') : '—'} /><Mini label="Правила" value={profile.rulesKeptRate === null ? 'скрыто' : `${profile.rulesKeptRate || 0}%`} /><Mini label="Всего шагов" value={profile.totalSteps ? profile.totalSteps.toLocaleString('ru-RU') : '—'} /></div>}{medals.length > 0 && <div className="mt-3 flex flex-wrap gap-1">{medals.map((medal) => <span key={medal} className="inline-flex items-center gap-1 bg-[#fff7dc] px-2 py-1 text-[10px] font-black text-[#8b6b16] rounded-sm"><Award size={12} />{medal}</span>)}</div>}<div className="mt-3">{children}</div></article>;
+  return <article className="border border-[#cfe0dc] bg-white p-4 rounded-lg"><div className="flex items-start gap-3"><Avatar src={profile.photoUrl} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="truncate font-black">{profile.displayName}</h2>{profile.role === 'admin' && <span className="bg-[#eaf8fd] px-2 py-1 text-[9px] font-black uppercase text-[#0d7ea5] rounded-sm">Администратор</span>}</div><p className="mt-1 text-xs font-black text-[#0d735f]">{route}</p><p className="mt-1 line-clamp-2 text-xs font-semibold text-slate-500">{profile.bio || 'Идёт своим маршрутом'}</p></div></div><div className="mt-3 grid grid-cols-3 gap-1 text-center"><Mini label="Путь" value={profile.completionRate === null ? 'скрыто' : `${profile.completionRate || 0}%`} /><Mini label="Сильных" value={profile.strongDays ?? '—'} /><Mini label="Вес" value={profile.currentWeight ? `${profile.currentWeight} кг` : 'скрыто'} /></div><div className="mt-1 grid grid-cols-3 gap-1 text-center"><Mini label="Шагов / день" value={profile.avgSteps ? profile.avgSteps.toLocaleString('ru-RU') : '—'} /><Mini label="Правила" value={profile.rulesKeptRate === null ? 'скрыто' : `${profile.rulesKeptRate || 0}%`} /><Mini label="Всего шагов" value={profile.totalSteps ? profile.totalSteps.toLocaleString('ru-RU') : '—'} /></div>{medals.length > 0 && <div className="mt-3 flex flex-wrap gap-1">{medals.map((medal) => <span key={medal} className="inline-flex items-center gap-1 bg-[#fff7dc] px-2 py-1 text-[10px] font-black text-[#8b6b16] rounded-sm"><Award size={12} />{medal}</span>)}</div>}<div className="mt-3">{children}</div></article>;
 }
 
 function MemberInspector({ inspector, admin, friend, onClose }) {

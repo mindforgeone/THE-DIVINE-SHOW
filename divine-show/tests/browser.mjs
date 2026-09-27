@@ -16,7 +16,7 @@ const newPath = 'users/test-owner/trackers/marathon-current-v11';
 const cloud = new Map([[oldPath, { state: createInitialState('2026-08-30', '2026-08-30T08:00:00Z') }]]);
 let offline = false;
 let writes = 0;
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) });
 
 const firestoreStub = `
 const subscribers = new Set();
@@ -84,7 +84,11 @@ async function setup(context, user = owner) {
 }
 
 async function checkWidth(page, name) {
-  const measure = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, content: document.documentElement.scrollWidth }));
+  const measure = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    content: document.documentElement.scrollWidth,
+    overflow: [...document.querySelectorAll('body *')].map((element) => ({ tag: element.tagName, text: element.textContent?.trim().slice(0, 40), left: Math.round(element.getBoundingClientRect().left), right: Math.round(element.getBoundingClientRect().right), width: Math.round(element.getBoundingClientRect().width), className: String(element.className).slice(0, 80) })).filter((item) => item.right > document.documentElement.clientWidth + 1 || item.left < -1).slice(0, 8),
+  }));
   assert.ok(measure.content <= measure.viewport + 1, `${name}: ${JSON.stringify(measure)}`);
 }
 
@@ -190,7 +194,7 @@ try {
   await page.getByRole('heading', { name: 'Кем я становлюсь', exact: true }).waitFor();
   await page.getByRole('heading', { name: 'Главные векторы', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Развитие', exact: true }).click();
-  await page.getByRole('heading', { name: 'Дерево развития', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Карта развития', exact: true }).waitFor();
   await page.getByText('Перенос в PROD', { exact: true }).first().waitFor();
   await page.getByRole('button', { name: 'Желания', exact: true }).click();
   await page.getByRole('heading', { name: 'Карта желаний', exact: true }).waitFor();
@@ -201,6 +205,21 @@ try {
   await checkWidth(page, 'mobile course');
   await page.setViewportSize({ width: 1440, height: 900 });
   await checkWidth(page, 'desktop course');
+  await page.getByRole('button', { name: 'План', exact: true }).last().click();
+  await page.getByRole('heading', { name: 'От маршрута до сегодняшнего шага', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Добавить', exact: true }).click();
+  const planDialog = page.getByRole('dialog', { name: 'План' });
+  await planDialog.getByRole('textbox', { name: 'Результат', exact: true }).fill('Провести 10 аналитик');
+  await planDialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await page.getByText('Провести 10 аналитик', { exact: true }).waitFor();
+  await page.getByRole('button', { name: /Календарь/ }).click();
+  await page.getByText('За эту дату пока нет событий.', { exact: true }).waitFor();
+  await checkWidth(page, 'desktop planning');
+  await page.screenshot({ path: join(output, 'planning-desktop.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Итоги', exact: true }).last().click();
+  await page.getByRole('heading', { name: 'То, что уже нельзя отнять', exact: true }).waitFor();
+  await checkWidth(page, 'desktop achievements');
+  await page.screenshot({ path: join(output, 'achievements-desktop.png'), fullPage: true });
   await page.getByRole('button', { name: 'Шаги', exact: true }).last().click();
   await page.getByRole('heading', { name: 'Шаги, которые уже сделаны', exact: true }).waitFor();
   const stepsPath = 'users/test-owner/trackers/steps-v1';
@@ -341,11 +360,24 @@ try {
   assert.equal(await otherPage.getByText('Высказаться на встрече', { exact: true }).count(), 0, 'Another account must not see owner steps');
   await otherPage.screenshot({ path: join(output, 'member-today.png'), fullPage: true });
   await checkWidth(otherPage, 'member mobile today');
-  await otherPage.getByRole('button', { name: 'Друзья', exact: true }).last().click();
+  await otherPage.evaluate(() => {
+    localStorage.setItem('day-one-friend-inbox:test-other', JSON.stringify([{ id: 'admin__member', from: '5CMckLFqiCPoPCBQLz1YqBkgVXs1', to: 'test-other', participants: ['5CMckLFqiCPoPCBQLz1YqBkgVXs1', 'test-other'], status: 'pending' }]));
+    window.dispatchEvent(new CustomEvent('day-one-friend-requests-changed'));
+  });
+  await otherPage.getByRole('button', { name: /Друзья 1 новых запросов/ }).last().waitFor();
+  await otherPage.getByRole('button', { name: /Друзья 1 новых запросов/ }).last().click();
   await otherPage.getByRole('heading', { name: 'Участники и друзья', exact: true }).waitFor();
+  await otherPage.getByRole('heading', { name: 'Вас хотят добавить в друзья', exact: true }).waitFor();
+  assert.equal(await otherPage.getByRole('button', { name: 'Принять', exact: true }).isDisabled(), true, 'A device-only request must stay visible but cannot be accepted before cloud confirmation');
   await otherPage.getByRole('heading', { name: 'Stopmenlaser', exact: true }).waitFor();
   assert.equal(await otherPage.getByText('Администратор', { exact: true }).count(), 1, 'Admin must stay visible when publicProfiles is empty');
+  const publicAdminCard = otherPage.locator('article').filter({ has: otherPage.getByRole('heading', { name: 'Stopmenlaser', exact: true }) });
+  assert.equal(await publicAdminCard.getByText('Вес', { exact: true }).count(), 0, 'Public participant cards must not reveal weight');
+  assert.equal(await publicAdminCard.getByText('Сильных', { exact: true }).count(), 0, 'Public participant cards must not reveal progress details');
   await otherPage.screenshot({ path: join(output, 'member-friends.png'), fullPage: true });
+  const communityHeader = otherPage.locator('section').filter({ has: otherPage.getByRole('heading', { name: 'Участники и друзья', exact: true }) }).first();
+  await communityHeader.getByRole('button', { name: /Друзья/ }).click();
+  await otherPage.getByText('Здесь появятся подтверждённые друзья.', { exact: false }).waitFor();
   await otherPage.getByRole('button', { name: 'Прогресс', exact: true }).last().click();
   await otherPage.getByText('Питался по своему плану', { exact: true }).waitFor();
   assert.equal(await otherPage.getByText('Без World of Tanks', { exact: true }).count(), 0);
