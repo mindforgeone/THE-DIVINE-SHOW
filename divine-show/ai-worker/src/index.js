@@ -73,6 +73,7 @@ export function buildSystemPrompt() {
     'Правило 7700 ккал на килограмм и активные калории являются приближениями. Указывай это при выводах о весе.',
     'Не называй вес застоем, если поле plateau равно false. Суточные колебания веса не трактуй как набор жира.',
     'Сначала оцени качество данных. Затем найди динамику, повторяющиеся условия сильных дней и расхождения между ожиданием и фактом.',
+    'Статус insufficient_data используй только если заполнено меньше 3 дней. При 3 и более днях выбери on_track или attention по фактам.',
     'Гипотезы ранжируй по уверенности и для каждой предлагай способ проверки следующими наблюдениями.',
     'Дай не больше трёх приоритетов. Каждый приоритет должен содержать конкретное действие и проверяемую метрику.',
     'Учитывай тело, дисциплину, действия, смелость, цели, профессиональное развитие и жизненные векторы только при наличии данных.',
@@ -133,40 +134,66 @@ function validateSnapshot(snapshot) {
   return '';
 }
 
-async function requestGroq(snapshot, env) {
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.GROQ_API_KEY}`,
-      'Content-Type': 'application/json',
+function parseJsonText(value) {
+  const text = String(value || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  return text ? JSON.parse(text) : null;
+}
+
+export function parseAiPayload(payload) {
+  const direct = payload?.response ?? payload?.result?.response;
+  if (direct && typeof direct === 'object') return direct;
+  if (typeof direct === 'string') return parseJsonText(direct);
+  const chat = payload?.choices?.[0]?.message?.content;
+  if (typeof chat === 'string') return parseJsonText(chat);
+  if (typeof payload?.output_text === 'string') return parseJsonText(payload.output_text);
+  const outputText = payload?.output
+    ?.flatMap((item) => item?.content || [])
+    .find((item) => item?.type === 'output_text')?.text;
+  return parseJsonText(outputText);
+}
+
+function validAnalysis(value) {
+  return value
+    && typeof value.headline === 'string'
+    && typeof value.summary === 'string'
+    && Array.isArray(value.facts)
+    && Array.isArray(value.hypotheses)
+    && Array.isArray(value.priorities);
+}
+
+async function runWorkersModel(model, snapshot, env) {
+  const options = {
+    messages: [
+      { role: 'system', content: buildSystemPrompt() },
+      { role: 'user', content: `Проведи анализ этого проверенного снимка данных:\n${JSON.stringify(snapshot)}` },
+    ],
+    temperature: 0.2,
+    max_tokens: 5000,
+    response_format: {
+      type: 'json_schema',
+      json_schema: ANALYSIS_SCHEMA,
     },
-    body: JSON.stringify({
-      model: env.GROQ_MODEL || 'openai/gpt-oss-120b',
-      messages: [
-        { role: 'system', content: buildSystemPrompt() },
-        { role: 'user', content: `Проведи анализ этого проверенного снимка данных:\n${JSON.stringify(snapshot)}` },
-      ],
-      reasoning_effort: 'medium',
-      temperature: 0.2,
-      max_completion_tokens: 5000,
-      response_format: {
-        type: 'json_schema',
-        json_schema: {
-          name: 'day_one_analysis',
-          strict: true,
-          schema: ANALYSIS_SCHEMA,
-        },
-      },
-    }),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const detail = payload.error?.message || 'Groq временно не отвечает.';
-    throw new Error(response.status === 429 ? 'Лимит анализов временно исчерпан. Попробуй позже.' : detail);
+  };
+  if (model.includes('gpt-oss')) options.reasoning = { effort: 'medium' };
+  const payload = await env.AI.run(model, options);
+  const analysis = parseAiPayload(payload);
+  if (!validAnalysis(analysis)) throw new Error('Модель вернула неполный структурированный разбор.');
+  return { analysis, model };
+}
+
+export async function requestWorkersAi(snapshot, env) {
+  const primary = env.PRIMARY_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+  const fallback = env.FALLBACK_MODEL || '@cf/openai/gpt-oss-120b';
+  try {
+    return await runWorkersModel(primary, snapshot, env);
+  } catch (primaryError) {
+    try {
+      return await runWorkersModel(fallback, snapshot, env);
+    } catch (fallbackError) {
+      const message = String(fallbackError?.message || primaryError?.message || 'Workers AI временно не отвечает.');
+      throw new Error(/quota|limit|neuron|3036/i.test(message) ? 'Бесплатный лимит анализов на сегодня исчерпан.' : message, { cause: fallbackError });
+    }
   }
-  const content = payload.choices?.[0]?.message?.content;
-  if (!content) throw new Error('Модель вернула пустой ответ.');
-  return { analysis: JSON.parse(content), model: payload.model || env.GROQ_MODEL || 'openai/gpt-oss-120b' };
 }
 
 export async function handleRequest(request, env) {
@@ -175,7 +202,7 @@ export async function handleRequest(request, env) {
   if (origin && !allowed.includes(origin)) return json({ error: 'Источник запроса не разрешён.' }, 403);
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(origin || allowed[0]) });
   if (request.method !== 'POST') return json({ error: 'Используй POST.' }, 405, origin);
-  if (!env.GROQ_API_KEY || !env.FIREBASE_API_KEY || !env.ADMIN_UID) return json({ error: 'Сервер аналитика не настроен.' }, 503, origin);
+  if (!env.AI || !env.FIREBASE_API_KEY || !env.ADMIN_UID) return json({ error: 'Сервер аналитика не настроен.' }, 503, origin);
   const auth = request.headers.get('Authorization') || '';
   if (!auth.startsWith('Bearer ')) return json({ error: 'Нужна авторизация.' }, 401, origin);
   const firebaseUser = await verifyFirebaseToken(auth.slice(7), env);
@@ -192,7 +219,7 @@ export async function handleRequest(request, env) {
   const validationError = validateSnapshot(body.snapshot);
   if (validationError) return json({ error: validationError }, 400, origin);
   try {
-    const result = await requestGroq(body.snapshot, env);
+    const result = await requestWorkersAi(body.snapshot, env);
     return json({ ...result, generatedAt: new Date().toISOString(), snapshotDigest: await digestSnapshot(body.snapshot) }, 200, origin);
   } catch (error) {
     return json({ error: error?.message || 'Не удалось провести анализ.' }, 502, origin);

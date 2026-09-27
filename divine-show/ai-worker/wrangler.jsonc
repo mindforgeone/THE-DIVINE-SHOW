@@ -6,10 +6,14 @@
   "observability": {
     "enabled": true
   },
+  "ai": {
+    "binding": "AI"
+  },
   "vars": {
     "ADMIN_UID": "5CMckLFqiCPoPCBQLz1YqBkgVXs1",
     "FIREBASE_API_KEY": "AIzaSyDHVp0mEj1rvLdFXXnI3_0J_PVyt06_DX0",
-    "GROQ_MODEL": "openai/gpt-oss-120b",
+    "PRIMARY_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    "FALLBACK_MODEL": "@cf/openai/gpt-oss-120b",
     "ALLOWED_ORIGINS": "https://mindforgeone.github.io,http://localhost:5173,http://localhost:5180"
   }
 }

@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ANALYSIS_SCHEMA, buildSystemPrompt, handleRequest } from '../ai-worker/src/index.js';
+import { ANALYSIS_SCHEMA, buildSystemPrompt, handleRequest, parseAiPayload } from '../ai-worker/src/index.js';
 
 const env = {
   ADMIN_UID: 'admin',
   FIREBASE_API_KEY: 'test',
-  GROQ_API_KEY: 'test',
+  AI: { run: async () => ({}) },
   ALLOWED_ORIGINS: 'https://mindforgeone.github.io',
 };
 
@@ -18,6 +18,12 @@ test('analyst schema requires evidence, hypotheses and measurable priorities', (
   assert.match(buildSystemPrompt(), /только по-русски/i);
   assert.match(buildSystemPrompt(), /Не придумывай/i);
   assert.match(buildSystemPrompt(), /plateau равно false/i);
+});
+
+test('worker parses both Workers AI object and chat payloads', () => {
+  const analysis = { headline: 'Курс держится', summary: 'Есть факты', facts: [], hypotheses: [], priorities: [] };
+  assert.deepEqual(parseAiPayload({ response: analysis }), analysis);
+  assert.deepEqual(parseAiPayload({ choices: [{ message: { content: JSON.stringify(analysis) } }] }), analysis);
 });
 
 test('worker rejects foreign origins before touching authentication', async () => {

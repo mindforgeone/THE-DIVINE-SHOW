@@ -94,7 +94,7 @@ async function setup(context, user, isAdmin) {
   await context.route(/\/firebase_auth\.js(\?|$)/, (route) => route.fulfill({ contentType: 'text/javascript', body: `const user=${JSON.stringify(user)}; user.getIdToken=async()=>"synthetic-token"; export const onAuthStateChanged=(_auth,cb)=>{queueMicrotask(()=>cb(user));return ()=>{}}; export const signOut=async()=>{}; export const signInWithPopup=async()=>{}; export const signInWithRedirect=async()=>{};` }));
   await context.route(/\/firebase_firestore\.js(\?|$)/, (route) => route.fulfill({ contentType: 'text/javascript', body: firestoreStub }));
   await context.route('https://ai.test/analyze', (route) => route.fulfill({ json: {
-    generatedAt: '2026-09-27T12:00:00.000Z', model: 'openai/gpt-oss-120b', snapshotDigest: 'synthetic',
+    generatedAt: '2026-09-27T12:00:00.000Z', model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', snapshotDigest: 'synthetic',
     analysis: {
       status: 'on_track', headline: 'Курс держится, пора усилить точность', summary: 'Вес движется вниз, а заполненность позволяет сравнивать ожидание с фактом.',
       facts: [{ title: 'Вес снижается', observation: 'Сглаженный тренд направлен вниз.', evidence: '27 измерений веса.' }, { title: 'Активность стабильна', observation: 'Шаги держатся выше базового ориентира.', evidence: 'Среднее выше 8 000 шагов.' }],

@@ -64,7 +64,7 @@ export default function AiAnalyst({ user, state, stats, lifeState, stepsState })
         period,
         periodLabel: snapshot.period.label,
         generatedAt: response.generatedAt || new Date().toISOString(),
-        model: response.model || 'openai/gpt-oss-120b',
+        model: response.model || '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
         snapshotDigest: response.snapshotDigest || '',
         analysis: response.analysis,
       };
@@ -111,7 +111,7 @@ export default function AiAnalyst({ user, state, stats, lifeState, stepsState })
             {loading ? <Loader2 size={18} className="animate-spin" /> : currentReport ? <RefreshCw size={18} /> : <Sparkles size={18} />}
             {loading ? 'Сопоставляю факты…' : currentReport ? 'Обновить разбор' : 'Провести разбор'}
           </button>
-          <p className="mt-3 max-w-3xl text-xs font-semibold leading-5 text-slate-400">При запуске структурированный снимок выбранного периода отправляется в Groq. Ключ остаётся на защищённом сервере, а идентификатор аккаунта модели не передаётся.</p>
+          <p className="mt-3 max-w-3xl text-xs font-semibold leading-5 text-slate-400">При запуске структурированный снимок выбранного периода обрабатывается в Cloudflare Workers AI. Доступ закрыт Firebase-проверкой, а идентификатор аккаунта модели не передаётся.</p>
           {error && <div role="alert" className="mt-3 border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-800 rounded-md">{error}</div>}
           {notice && <div role="status" className="mt-3 border border-[#b8e0cb] bg-[#ecfbf3] p-3 text-sm font-bold text-[#16865f] rounded-md">{notice}</div>}
         </div>
