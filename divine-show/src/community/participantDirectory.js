@@ -25,24 +25,6 @@ export const PARTICIPANT_DIRECTORY = [
     role: 'admin',
     photoUrl: 'https://lh3.googleusercontent.com/a/ACg8ocJvxorhByauDZHMpSmnHEHXKsgZDpGONntXPKFnm3bV8sCqEvM=s96-c',
   },
-  {
-    ...baseProfile,
-    uid: 'dLKEXNsepUY3zcllftrj97OvLmA2',
-    displayName: 'Ксения Борисова',
-    photoUrl: 'https://lh3.googleusercontent.com/a/ACg8ocKNJbwYA99Md2UKQhzMBDgI_fW0QZwm_qu07YjB0RPziDBR2Q=s96-c',
-  },
-  {
-    ...baseProfile,
-    uid: 'eTaXSjuPX8bDEdOovlaJnyjFcFX2',
-    displayName: 'Мария Гужова',
-    photoUrl: 'https://lh3.googleusercontent.com/a/ACg8ocK8vw10t3CvLAcsZ7YPLG2H0KkUfqL9u0IyKXmNaOz9RkrZZdYGlA=s96-c',
-  },
-  {
-    ...baseProfile,
-    uid: 'nd9QLCy73VfMYjIe3GDoyXdu4FU2',
-    displayName: 'Михаил',
-    photoUrl: 'https://lh3.googleusercontent.com/a/ACg8ocKpJhwownk1JdHfCe27DD--WzpWxzg_llYyJ2jSQ8kycACE3w=s96-c',
-  },
 ];
 
 export function mergeParticipantProfiles(cloudProfiles = []) {

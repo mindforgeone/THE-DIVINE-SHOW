@@ -61,9 +61,9 @@ test('admin and member accounts use isolated reset generations', async () => {
 
 test('participant directory survives an empty public profile collection', () => {
   const profiles = mergeParticipantProfiles([{ uid: '5CMckLFqiCPoPCBQLz1YqBkgVXs1', role: 'admin', displayName: 'Old name' }]);
-  assert.equal(profiles.length, 4);
+  assert.equal(profiles.length, 1);
   assert.equal(profiles.find((profile) => profile.role === 'admin').displayName, 'Stopmenlaser');
-  assert.ok(profiles.some((profile) => profile.displayName === 'Ксения Борисова'));
+  assert.equal(profiles.some((profile) => profile.displayName === 'Ксения Борисова'), false);
 });
 
 test('member migration exposes only the three member defaults and keeps custom rules', () => {

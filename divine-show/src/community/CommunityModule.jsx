@@ -41,15 +41,16 @@ export default function CommunityModule({ user }) {
 
   useEffect(() => {
     if (!db || !uid) return undefined;
+    const profilesQuery = admin ? collection(db, 'publicProfiles') : query(collection(db, 'publicProfiles'), where('discoverable', '==', true));
     const unsubscribers = [
-      onSnapshot(collection(db, 'publicProfiles'), (snapshot) => setProfiles(mergeParticipantProfiles(snapshot.docs.map((item) => item.data())))),
+      onSnapshot(profilesQuery, (snapshot) => setProfiles(mergeParticipantProfiles(snapshot.docs.map((item) => item.data())))),
       onSnapshot(query(collection(db, 'friendRequests'), where('participants', 'array-contains', uid)), { includeMetadataChanges: true }, (snapshot) => { setCloudRequests(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))); setRequestsSyncing(snapshot.metadata.hasPendingWrites); }, () => setCloudMessage('Не удалось загрузить запросы в друзья. Проверь подключение к Firebase.')),
       onSnapshot(query(collection(db, 'friendships'), where('members', 'array-contains', uid)), (snapshot) => setFriendships(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))),
       onSnapshot(query(collection(db, 'conversations'), where('members', 'array-contains', uid)), (snapshot) => setConversations(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))),
       onSnapshot(query(collection(db, 'challenges'), where('participants', 'array-contains', uid)), (snapshot) => setChallenges(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))),
     ];
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
-  }, [uid]);
+  }, [admin, uid]);
 
   useEffect(() => {
     const refresh = () => setLocalIncoming(loadIncomingFriendRequests(uid));

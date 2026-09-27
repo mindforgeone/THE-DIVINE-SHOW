@@ -66,12 +66,18 @@ for (const path of [`unrelated/${owner.uid}`]) {
 }
 
 addCustom('signed in can discover public profiles', `publicProfiles/${owner.uid}`, 'get', { uid: 'rules-test-other' }, 'ALLOW', { uid: owner.uid, discoverable: true });
-addCustom('owner can publish own profile', `publicProfiles/${owner.uid}`, 'create', { uid: owner.uid }, 'ALLOW', {}, { uid: owner.uid, discoverable: true });
+addCustom('owner can publish own profile', `publicProfiles/${owner.uid}`, 'create', { uid: owner.uid }, 'ALLOW', {}, { uid: owner.uid, role: 'user', discoverable: true });
+addCustom('owner can read hidden own profile', `publicProfiles/${owner.uid}`, 'get', { uid: owner.uid }, 'ALLOW', { uid: owner.uid, role: 'user', discoverable: false });
+addCustom('other cannot discover hidden profile', `publicProfiles/${owner.uid}`, 'get', { uid: 'rules-test-other' }, 'DENY', { uid: owner.uid, role: 'user', discoverable: false });
+addCustom('owner cannot spoof another public identity', `publicProfiles/${owner.uid}`, 'create', { uid: owner.uid }, 'DENY', {}, { uid: adminUid, role: 'admin', discoverable: true });
+addCustom('owner cannot grant an admin badge', `publicProfiles/${owner.uid}`, 'create', { uid: owner.uid }, 'DENY', {}, { uid: owner.uid, role: 'admin', discoverable: true });
 addCustom('other cannot overwrite public profile', `publicProfiles/${owner.uid}`, 'update', { uid: 'rules-test-other' }, 'DENY', { uid: owner.uid }, { uid: owner.uid, displayName: 'Other' });
 addCustom('signed out cannot discover public profiles', `publicProfiles/${owner.uid}`, 'get', null, 'DENY', { uid: owner.uid, discoverable: true });
 addCustom('owner can read own friend profile', `friendProfiles/${owner.uid}`, 'get', { uid: owner.uid }, 'ALLOW', { uid: owner.uid, completionRate: 50 });
 addCustom('admin can inspect friend profile', `friendProfiles/${owner.uid}`, 'get', { uid: adminUid }, 'ALLOW', { uid: owner.uid, completionRate: 50 });
 addCustom('non-friend cannot read friend profile', `friendProfiles/${owner.uid}`, 'get', { uid: 'rules-test-other' }, 'DENY', { uid: owner.uid, completionRate: 50 });
+addCustom('owner can publish own friend profile', `friendProfiles/${owner.uid}`, 'create', { uid: owner.uid }, 'ALLOW', {}, { uid: owner.uid, completionRate: 50 });
+addCustom('owner cannot spoof friend profile identity', `friendProfiles/${owner.uid}`, 'create', { uid: owner.uid }, 'DENY', {}, { uid: adminUid, completionRate: 50 });
 addCustom('other cannot overwrite friend profile', `friendProfiles/${owner.uid}`, 'update', { uid: 'rules-test-other' }, 'DENY', { uid: owner.uid }, { uid: owner.uid, completionRate: 100 });
 
 const participants = [owner.uid, 'rules-test-friend'];
@@ -79,6 +85,9 @@ addCustom('participant can read friend request', 'friendRequests/example', 'get'
 addCustom('outsider cannot read friend request', 'friendRequests/example', 'get', { uid: 'rules-test-other' }, 'DENY', { from: owner.uid, to: 'rules-test-friend', participants, status: 'pending' });
 addCustom('sender can create friend request', 'friendRequests/example', 'create', { uid: owner.uid }, 'ALLOW', {}, { from: owner.uid, to: 'rules-test-friend', participants, status: 'pending' });
 addCustom('impersonator cannot create friend request', 'friendRequests/example', 'create', { uid: 'rules-test-other' }, 'DENY', {}, { from: owner.uid, to: 'rules-test-friend', participants, status: 'pending' });
+addCustom('sender cannot accept own friend request', 'friendRequests/example', 'update', { uid: owner.uid }, 'DENY', { from: owner.uid, to: 'rules-test-friend', participants, status: 'pending' }, { from: owner.uid, to: 'rules-test-friend', participants, status: 'accepted' });
+addCustom('recipient can accept friend request', 'friendRequests/example', 'update', { uid: 'rules-test-friend' }, 'ALLOW', { from: owner.uid, to: 'rules-test-friend', participants, status: 'pending' }, { from: owner.uid, to: 'rules-test-friend', participants, status: 'accepted' });
+addCustom('recipient cannot rewrite friend request identity', 'friendRequests/example', 'update', { uid: 'rules-test-friend' }, 'DENY', { from: owner.uid, to: 'rules-test-friend', participants, status: 'pending' }, { from: 'rules-test-other', to: 'rules-test-friend', participants, status: 'accepted' });
 
 for (const [collectionName, listField] of [['friendships', 'members'], ['conversations', 'members'], ['challenges', 'participants']]) {
   const data = { [listField]: participants, createdBy: owner.uid };
