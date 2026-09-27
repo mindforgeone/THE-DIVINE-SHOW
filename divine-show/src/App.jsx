@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Activity,
@@ -33,6 +33,7 @@ import {
   Trophy,
   Utensils,
   Users,
+  Wallet,
   X,
   Zap,
 } from 'lucide-react';
@@ -87,6 +88,7 @@ import {
 } from './marathon/model';
 
 const CommunityModule = lazy(() => import('./community/CommunityModule'));
+const FinanceModule = lazy(() => import('./financeHub/FinanceModule'));
 
 function App() {
   const authSession = useGoogleAuth();
@@ -102,6 +104,21 @@ function AccountApp({ authSession }) {
   const incomingFriendRequests = useFriendRequestNotifications(user?.uid);
   const stepsStore = useStepsStore(cloudReady && state?.contractAcceptedAt ? adminUser : null);
   const lifeStore = useLifeStore(cloudReady && state?.contractAcceptedAt ? adminUser : null);
+  const lifeCommitRef = useRef(null);
+  useEffect(() => {
+    lifeCommitRef.current = lifeStore.commit;
+  }, [lifeStore.commit]);
+  const syncFinanceCapital = useCallback((value) => {
+    const current = Math.max(0, Number(value) || 0);
+    lifeCommitRef.current?.((previous, changedAt) => {
+      const capital = previous.vectors.find((item) => item.id === 'capital');
+      if (!capital || Math.abs(number(capital.current) - current) < 0.5) return previous;
+      return {
+        ...previous,
+        vectors: previous.vectors.map((item) => item.id === 'capital' ? { ...item, current, updatedAt: changedAt } : item),
+      };
+    });
+  }, []);
   const [activeDayIndex, setActiveDayIndex] = useState(null);
   const [view, setView] = useState('today');
   const [range, setRange] = useState('30');
@@ -274,7 +291,7 @@ function AccountApp({ authSession }) {
         onLogOut={() => signOut(auth)}
       />
 
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-3 pb-24 pt-3 sm:px-5 lg:px-7">
+      <div className={view === 'finance' ? 'mx-auto w-full max-w-[1600px] pb-0 pt-3 lg:px-3' : 'mx-auto flex w-full max-w-7xl flex-col gap-4 px-3 pb-24 pt-3 sm:px-5 lg:px-7'}>
         {storageError && <div role="status" className="flex flex-wrap items-center justify-between gap-2 border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 rounded-md"><span>{storageError}</span><button type="button" onClick={retry} className="font-bold underline">Повторить синхронизацию</button></div>}
         {['today', 'stats'].includes(view) && <JourneyMap
           days={state.days}
@@ -346,10 +363,14 @@ function AccountApp({ authSession }) {
             onScoringChange={updateScoring}
             totalDays={durationDays}
           />
+        ) : view === 'finance' ? (
+          <Suspense fallback={<div className="p-8 text-center font-black">Открываю финансовый штаб…</div>}>
+            <FinanceModule user={user} onExit={() => setView('today')} onCapitalChange={syncFinanceCapital} />
+          </Suspense>
         ) : <Suspense fallback={<div className="p-8 text-center font-black">Открываю пространство друзей…</div>}><CommunityModule user={user} privateState={state} /></Suspense>}
       </div>
 
-      <MobileNav view={view} onView={setView} incomingFriendRequests={incomingFriendRequests} onAdd={() => view === 'steps' ? setNewStepRequest((value) => value + 1) : setTaskEditorOpen(true)} />
+      {view !== 'finance' && <MobileNav view={view} onView={setView} incomingFriendRequests={incomingFriendRequests} onAdd={() => view === 'steps' ? setNewStepRequest((value) => value + 1) : setTaskEditorOpen(true)} />}
 
       <AnimatePresence>
         {goalEditor && <GoalModal key="goal-editor" mode={goalEditor.mode} goal={goalEditor.goal} goals={state.goals} onSave={saveGoal} onArchive={archiveGoal} onClose={() => setGoalEditor(null)} />}
@@ -506,6 +527,7 @@ function CompactHeader({ user, avatarUrl, currentDay, totalDays, progress, syncS
           <NavButton active={view === 'stats'} icon={<BarChart3 size={17} />} label="Статистика" onClick={() => onView('stats')} />
           <NavButton active={view === 'achievements'} icon={<Trophy size={17} />} label="Итоги" onClick={() => onView('achievements')} />
           <NavButton active={view === 'friends'} icon={<Users size={17} />} label="Друзья" badge={incomingFriendRequests} onClick={() => onView('friends')} />
+          <NavButton active={view === 'finance'} icon={<Wallet size={17} />} label="Капитал" onClick={() => onView('finance')} />
         </div>
         <span role="status" aria-label={syncState === 'offline' ? 'Сохранено на устройстве, ожидает синхронизации' : syncState === 'saving' ? 'Сохраняю в облако' : 'Сохранено в облаке'} className={`h-2.5 w-2.5 shrink-0 rounded-full ${syncState === 'offline' ? 'bg-rose-500' : syncState === 'saving' ? 'animate-pulse bg-amber-400' : 'bg-emerald-500'}`} title={syncState === 'offline' ? 'Сохранено на устройстве' : syncState === 'saving' ? 'Сохраняю в облако' : 'Сохранено в облаке'} />
         {avatarUrl ? <img src={avatarUrl} alt={user.displayName || 'Аватар'} className="h-10 w-10 shrink-0 border border-[#d9e4e8] bg-[#edf4f6] object-cover rounded-md" title={user.displayName || user.email || 'Профиль'} /> : <span className="grid h-10 w-10 shrink-0 place-items-center bg-[#eaf8fd] font-black text-[#0d7ea5] rounded-md" title={user.email || 'Профиль'}>{(user.displayName || user.email || 'Я').trim().charAt(0).toUpperCase()}</span>}
@@ -527,7 +549,7 @@ function MenuItem({ icon, label, danger = false, onClick }) {
 }
 
 function MobileNav({ view, incomingFriendRequests, onView }) {
-  return <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#d9e4e8] bg-white/95 px-2 py-2 backdrop-blur-xl xl:hidden"><div className="mx-auto flex max-w-3xl gap-1 overflow-x-auto"><MobileNavButton active={view === 'today'} icon={<Home />} label="Сегодня" onClick={() => onView('today')} /><MobileNavButton active={view === 'planning'} icon={<CalendarDays />} label="План" onClick={() => onView('planning')} /><MobileNavButton active={view === 'steps'} icon={<Footprints />} label="Шаги" onClick={() => onView('steps')} /><MobileNavButton active={view === 'course'} icon={<Compass />} label="Курс" onClick={() => onView('course')} /><MobileNavButton active={view === 'stats'} icon={<BarChart3 />} label="Статистика" onClick={() => onView('stats')} /><MobileNavButton active={view === 'achievements'} icon={<Trophy />} label="Итоги" onClick={() => onView('achievements')} /><MobileNavButton active={view === 'friends'} icon={<Users />} label="Друзья" badge={incomingFriendRequests} onClick={() => onView('friends')} /></div></nav>;
+  return <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#d9e4e8] bg-white/95 px-2 py-2 backdrop-blur-xl xl:hidden"><div className="mx-auto flex max-w-3xl gap-1 overflow-x-auto"><MobileNavButton active={view === 'today'} icon={<Home />} label="Сегодня" onClick={() => onView('today')} /><MobileNavButton active={view === 'planning'} icon={<CalendarDays />} label="План" onClick={() => onView('planning')} /><MobileNavButton active={view === 'steps'} icon={<Footprints />} label="Шаги" onClick={() => onView('steps')} /><MobileNavButton active={view === 'course'} icon={<Compass />} label="Курс" onClick={() => onView('course')} /><MobileNavButton active={view === 'stats'} icon={<BarChart3 />} label="Статистика" onClick={() => onView('stats')} /><MobileNavButton active={view === 'achievements'} icon={<Trophy />} label="Итоги" onClick={() => onView('achievements')} /><MobileNavButton active={view === 'friends'} icon={<Users />} label="Друзья" badge={incomingFriendRequests} onClick={() => onView('friends')} /><MobileNavButton active={view === 'finance'} icon={<Wallet />} label="Капитал" onClick={() => onView('finance')} /></div></nav>;
 }
 
 function MobileNavButton({ active, icon, label, badge = 0, onClick }) {

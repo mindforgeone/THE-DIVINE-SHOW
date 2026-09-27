@@ -51,7 +51,7 @@ const addCustom = (label, path, method, auth, expectation, currentData, nextData
   },
 });
 
-for (const path of [`users/${owner.uid}`, ...trackerIds.map((id) => `users/${owner.uid}/trackers/${id}`), `users/${owner.uid}/trackers/steps-v1`, `users/${owner.uid}/trackers/life-v1`, `users/${owner.uid}/marathons/example`, `users/${owner.uid}/private/example`, `divine_data/${owner.uid}`]) {
+for (const path of [`users/${owner.uid}`, ...trackerIds.map((id) => `users/${owner.uid}/trackers/${id}`), `users/${owner.uid}/trackers/steps-v1`, `users/${owner.uid}/trackers/life-v1`, `users/${owner.uid}/marathons/example`, `users/${owner.uid}/private/example`, `users/${owner.uid}/finance/root`, `users/${owner.uid}/finance/root/accounts/example`, `divine_data/${owner.uid}`]) {
   for (const method of ['get', 'create', 'update', 'delete']) {
     add(`owner ${method} ${path}`, path, method, { uid: owner.uid }, 'ALLOW');
     add(`admin ${method} ${path}`, path, method, { uid: adminUid }, 'ALLOW');
