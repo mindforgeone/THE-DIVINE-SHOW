@@ -16,6 +16,15 @@ const member = { uid: 'finance-test-member', email: 'finance-member@example.test
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) });
 
 const started = createInitialState('2026-09-01', '2026-09-01T08:00:00Z');
+started.days.slice(0, 27).forEach((day, index) => {
+  day.weight = Number((72 - index * 0.04).toFixed(2));
+  day.calories = 1800 + (index % 3) * 80;
+  day.activeCalories = 320 + (index % 4) * 20;
+  day.steps = 8200 + index * 50;
+  day.evidence = `Доказательство дня ${index + 1}`;
+  day.draftSavedAt = `${day.date}T20:00:00Z`;
+  day.codexValues = Object.fromEntries(started.codexRules.map((rule) => [rule.id, rule.type === 'limit' ? day.calories : true]));
+});
 const lifeState = createLifeState();
 lifeState.vectors = lifeState.vectors.map((vector) => vector.id === 'capital' ? { ...vector, current: 0 } : vector);
 const cloud = new Map([
@@ -69,6 +78,7 @@ export const runTransaction = async (_db, callback) => {
 };`;
 
 async function setup(context, user, isAdmin) {
+  await context.addInitScript(() => { window.__DAY_ONE_AI_URL__ = 'https://ai.test/analyze'; });
   await context.route('**/src/marathon/accountStorage.js*', async (route) => {
     const response = await route.fetch();
     const fingerprint = createHash('sha256').update(isAdmin ? user.email : admin.email).digest('hex');
@@ -81,8 +91,19 @@ async function setup(context, user, isAdmin) {
     return route.fulfill({ response, body });
   });
   await context.route('**/src/firebase.js*', (route) => route.fulfill({ contentType: 'text/javascript', body: 'export const auth={}; export const db={}; export const storage=null; export const firebaseConfigured=true; export const googleProvider={};' }));
-  await context.route(/\/firebase_auth\.js(\?|$)/, (route) => route.fulfill({ contentType: 'text/javascript', body: `export const onAuthStateChanged=(_auth,cb)=>{queueMicrotask(()=>cb(${JSON.stringify(user)}));return ()=>{}}; export const signOut=async()=>{}; export const signInWithPopup=async()=>{}; export const signInWithRedirect=async()=>{};` }));
+  await context.route(/\/firebase_auth\.js(\?|$)/, (route) => route.fulfill({ contentType: 'text/javascript', body: `const user=${JSON.stringify(user)}; user.getIdToken=async()=>"synthetic-token"; export const onAuthStateChanged=(_auth,cb)=>{queueMicrotask(()=>cb(user));return ()=>{}}; export const signOut=async()=>{}; export const signInWithPopup=async()=>{}; export const signInWithRedirect=async()=>{};` }));
   await context.route(/\/firebase_firestore\.js(\?|$)/, (route) => route.fulfill({ contentType: 'text/javascript', body: firestoreStub }));
+  await context.route('https://ai.test/analyze', (route) => route.fulfill({ json: {
+    generatedAt: '2026-09-27T12:00:00.000Z', model: 'openai/gpt-oss-120b', snapshotDigest: 'synthetic',
+    analysis: {
+      status: 'on_track', headline: 'Курс держится, пора усилить точность', summary: 'Вес движется вниз, а заполненность позволяет сравнивать ожидание с фактом.',
+      facts: [{ title: 'Вес снижается', observation: 'Сглаженный тренд направлен вниз.', evidence: '27 измерений веса.' }, { title: 'Активность стабильна', observation: 'Шаги держатся выше базового ориентира.', evidence: 'Среднее выше 8 000 шагов.' }],
+      dynamics: [{ area: 'Тело', trend: 'up', observation: 'Направление соответствует цели.' }],
+      hypotheses: [{ hypothesis: 'Точность питания поддерживает темп', confidence: 'medium', evidence: 'Записи калорий заполнены регулярно.', howToVerify: 'Сравнить ещё семь дней без изменения условий.' }],
+      priorities: [{ title: 'Сохранить измеримость', why: 'Данные уже дают рабочий тренд.', action: 'Заполнять вес и питание ежедневно.', metric: '7 из 7 заполненных дней.' }],
+      reinforcement: 'Ты уже создал последовательность, на которую можно опираться.', dataLimits: ['Активные калории остаются приблизительной оценкой.'],
+    },
+  } }));
   await context.route('**/__finance_test__/cloud', async (route) => {
     const request = route.request().postDataJSON();
     if (request.type === 'get') return route.fulfill({ json: cloud.get(request.path) || null });
@@ -128,6 +149,17 @@ try {
   const desktopWidth = await width(adminPage);
   assert.ok(desktopWidth.content <= desktopWidth.viewport + 1, JSON.stringify(desktopWidth));
   await adminPage.screenshot({ path: join(output, 'finance-desktop.png'), fullPage: true });
+  await adminPage.getByRole('button', { name: '120 дней', exact: true }).last().click();
+  await adminPage.getByRole('button', { name: 'Статистика', exact: true }).click();
+  await adminPage.getByRole('button', { name: 'Аналитик', exact: true }).click();
+  await adminPage.getByRole('heading', { name: 'Не мнение. Разбор по твоим данным.', exact: true }).waitFor();
+  await adminPage.getByRole('button', { name: 'Провести разбор', exact: true }).click();
+  await adminPage.getByRole('heading', { name: 'Курс держится, пора усилить точность', exact: true }).waitFor();
+  await adminPage.screenshot({ path: join(output, 'ai-desktop.png'), fullPage: true });
+  await adminPage.setViewportSize({ width: 390, height: 844 });
+  const aiMobileWidth = await width(adminPage);
+  assert.ok(aiMobileWidth.content <= aiMobileWidth.viewport + 1, JSON.stringify(aiMobileWidth));
+  await adminPage.screenshot({ path: join(output, 'ai-mobile.png'), fullPage: true });
   assert.deepEqual(errors, []);
   await adminContext.close();
 
@@ -139,8 +171,9 @@ try {
   await memberPage.goto(url);
   await memberPage.getByRole('heading', { name: 'Сегодняшние доказательства', exact: true }).waitFor();
   assert.equal(await memberPage.getByRole('button', { name: 'Капитал', exact: true }).count(), 0, 'Участник не должен видеть админский финансовый раздел');
+  assert.equal(await memberPage.getByRole('button', { name: 'Аналитик', exact: true }).count(), 0, 'Участник не должен видеть административный AI-аналитик');
   await memberContext.close();
-  console.log(JSON.stringify({ passed: true, checks: ['admin finance navigation', 'embedded finance data', 'capital vector sync', 'mobile overflow', 'desktop finance navigation', 'member tab isolation'] }, null, 2));
+  console.log(JSON.stringify({ passed: true, checks: ['admin finance navigation', 'embedded finance data', 'capital vector sync', 'mobile overflow', 'desktop finance navigation', 'AI analyst workflow', 'AI report persistence', 'member finance isolation', 'member AI isolation'] }, null, 2));
 } finally {
   await browser.close();
 }

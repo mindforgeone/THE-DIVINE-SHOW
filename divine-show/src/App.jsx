@@ -89,6 +89,7 @@ import {
 
 const CommunityModule = lazy(() => import('./community/CommunityModule'));
 const FinanceModule = lazy(() => import('./financeHub/FinanceModule'));
+const AiAnalyst = lazy(() => import('./ai/AiAnalyst'));
 
 function App() {
   const authSession = useGoogleAuth();
@@ -353,6 +354,7 @@ function AccountApp({ authSession }) {
             state={state}
             stats={stats}
             lifeState={lifeStore.state}
+            stepsState={stepsStore.state}
             lifeCommit={lifeStore.commit}
             codexCommit={commit}
             range={range}
@@ -737,14 +739,15 @@ function FinalReview({ review, totalDays, required, disabled, onChange }) {
   return <Section title={`День ${totalDays}: итог пути`} eyebrow={required ? 'Собери то, что теперь останется с тобой' : 'Финал собран'} icon={<Trophy />} tone="coral"><div className="grid gap-2"><ReflectionInput label="Что изменилось в теле и энергии?" value={review.body} disabled={disabled} onChange={(body) => onChange({ body })} /><ReflectionInput label="Что произошло с работой и професиональной ценностью?" value={review.career} disabled={disabled} onChange={(career) => onChange({ career })} /><ReflectionInput label="Какими действиями я доказал себе право быть собой?" value={review.identity} disabled={disabled} onChange={(identity) => onChange({ identity })} /><ReflectionInput label="Какой следующий путь я выбираю?" value={review.next} disabled={disabled} onChange={(next) => onChange({ next })} /></div></Section>;
 }
 
-function StatsDashboard({ user, state, stats, lifeState, lifeCommit, codexCommit, range, totalDays, onRange, onProfileChange, onScoringChange }) {
+function StatsDashboard({ user, state, stats, lifeState, stepsState, lifeCommit, codexCommit, range, totalDays, onRange, onProfileChange, onScoringChange }) {
   const [section, setSection] = useState('metrics');
   const weightRemaining = stats.lastWeight ? Math.max(0, stats.lastWeight - number(state.profile.targetWeight)) : null;
   return (
     <div className="grid gap-4">
-      <section className="border border-[#d8e3e7] bg-white p-4 rounded-lg"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="text-sm font-black text-[#0d8fb9]">Статистика</div><h1 className="mt-1 text-2xl font-black">Что меняется по фактам</h1></div>{section === 'metrics' && <RangeControl value={range} totalDays={totalDays} onChange={onRange} />}</div><div className="mt-4 grid grid-cols-3 gap-1 border border-[#d8e3e7] bg-[#f3f6f7] p-1 rounded-md">{[['metrics', 'Показатели'], ['events', 'События'], ['patterns', 'Паттерны']].map(([id, label]) => <button key={id} type="button" onClick={() => setSection(id)} className={`min-h-10 px-2 text-xs font-black rounded-sm ${section === id ? 'bg-[#102a43] text-white' : 'text-slate-500'}`}>{label}</button>)}</div></section>
+      <section className="border border-[#d8e3e7] bg-white p-4 rounded-lg"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="text-sm font-black text-[#0d8fb9]">Статистика</div><h1 className="mt-1 text-2xl font-black">Что меняется по фактам</h1></div>{section === 'metrics' && <RangeControl value={range} totalDays={totalDays} onChange={onRange} />}</div><div className="mt-4 grid grid-cols-2 gap-1 border border-[#d8e3e7] bg-[#f3f6f7] p-1 rounded-md sm:grid-cols-4">{[['metrics', 'Показатели'], ['analyst', 'Аналитик'], ['events', 'События'], ['patterns', 'Паттерны']].map(([id, label]) => <button key={id} type="button" onClick={() => setSection(id)} className={`min-h-10 px-2 text-xs font-black rounded-sm ${section === id ? 'bg-[#102a43] text-white' : 'text-slate-500'}`}>{label}</button>)}</div></section>
       {section === 'events' && lifeState && <EventsPanel user={user} state={lifeState} commit={lifeCommit} />}
       {section === 'patterns' && <PatternsPanel marathon={state} />}
+      {section === 'analyst' && <Suspense fallback={<div className="border border-[#d8e3e7] bg-white p-8 text-center font-black rounded-lg">Готовлю аналитика…</div>}><AiAnalyst user={user} state={state} stats={stats} lifeState={lifeState} stepsState={stepsState} /></Suspense>}
       {section === 'metrics' && <>
       <section className="grid grid-cols-2 gap-2 lg:grid-cols-5"><SummaryCard label="До 65 кг" value={weightRemaining === null ? 'Нужен вес' : `${weightRemaining.toFixed(1)} кг`} color="#16a36a" /><SummaryCard label="Энергобаланс" value={`${stats.avgBalance > 0 ? '+' : ''}${stats.avgBalance} ккал`} color="#f06c5f" /><SummaryCard label="Действия" value={stats.allActions.length} color="#0d8fb9" /><SummaryCard label="Рефлексия" value={`${stats.reflectionRate}%`} color="#d55784" /><SummaryCard label="Задачи" value={`${stats.tasksDone}/${stats.tasksDone + stats.tasksOpen}`} color="#7c63d6" /></section>
 
