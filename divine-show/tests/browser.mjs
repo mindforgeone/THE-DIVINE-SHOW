@@ -25,7 +25,7 @@ const request = async (body) => {
   if (!response.ok) throw new Error('Test offline');
   return response.json();
 };
-const snapshot = (data) => ({ exists: () => data !== null, data: () => data || undefined, docs: [], metadata: { fromCache: false, hasPendingWrites: false } });
+  const snapshot = (data) => ({ exists: () => data !== null, data: () => data || undefined, docs: (data?.__collection || []).map((item) => ({ id: item.id, data: () => item.data })), metadata: { fromCache: false, hasPendingWrites: false } });
 export const doc = (_db, ...parts) => parts.join('/');
 export const collection = (_db, ...parts) => parts.join('/');
 export const query = (path) => path;
@@ -68,13 +68,24 @@ async function setup(context, user = owner) {
     const body = (await response.text()).replace(/export const ADMIN_UID = ["'][^"']+["']/, `export const ADMIN_UID = '${owner.uid}'`);
     return route.fulfill({ response, body });
   });
+  await context.route('**/src/community/participantDirectory.js*', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace('5CMckLFqiCPoPCBQLz1YqBkgVXs1', owner.uid);
+    return route.fulfill({ response, body });
+  });
   await context.route('**/src/firebase.js*', (route) => route.fulfill({ contentType: 'text/javascript', body: 'export const auth={}; export const db={}; export const storage={}; export const firebaseConfigured=true; export const googleProvider={};' }));
   await context.route(/\/firebase_auth\.js(\?|$)/, (route) => route.fulfill({ contentType: 'text/javascript', body: `export const onAuthStateChanged=(_auth,cb)=>{queueMicrotask(()=>cb(${JSON.stringify(user)}));return ()=>{}}; export const signOut=async()=>{}; export const signInWithPopup=async()=>{};` }));
   await context.route(/\/firebase_firestore\.js(\?|$)/, (route) => route.fulfill({ contentType: 'text/javascript', body: firestoreStub }));
   await context.route('**/__test__/cloud', async (route) => {
     if (offline) return route.fulfill({ status: 503, body: '{}' });
     const request = route.request().postDataJSON();
-    if (request.type === 'get') return route.fulfill({ contentType: 'application/json', body: JSON.stringify(cloud.get(request.path) || null) });
+    if (request.type === 'get') {
+      if (request.path === 'publicProfiles') {
+        const documents = [...cloud.entries()].filter(([path]) => path.startsWith('publicProfiles/')).map(([path, data]) => ({ id: path.split('/').at(-1), data }));
+        return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ __collection: documents }) });
+      }
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(cloud.get(request.path) || null) });
+    }
     for (const op of request.operations) {
       if (op.type === 'delete') cloud.delete(op.path);
       else { cloud.set(op.path, op.merge ? { ...cloud.get(op.path), ...op.value } : op.value); if (op.path.includes('/trackers/')) writes++; }
@@ -95,6 +106,7 @@ async function checkWidth(page, name) {
 try {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: 'Europe/Moscow' });
   await setup(context);
+  cloud.set('publicProfiles/test-unstarted', { uid: 'test-unstarted', displayName: 'Участник без маршрута', role: 'user', photoUrl: '', discoverable: true, durationDays: null, journeyStatus: 'not_started' });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -102,6 +114,15 @@ try {
   await page.clock.install({ time: new Date('2026-09-06T10:00:00Z') });
   await page.goto(url);
   await page.getByRole('heading', { name: 'Мои аскезы', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Друзья', exact: true }).click();
+  const preStartCommunity = page.getByRole('dialog', { name: 'Участники и друзья', exact: true });
+  const unstartedCard = preStartCommunity.locator('article').filter({ hasText: 'Участник без маршрута' });
+  await unstartedCard.getByText('Маршрут не начат', { exact: true }).waitFor();
+  await unstartedCard.getByRole('button', { name: 'В друзья', exact: true }).click();
+  await preStartCommunity.getByText('Запрос доставлен. Он появится у получателя.', { exact: true }).waitFor();
+  assert.equal(cloud.get('friendRequests/test-owner__test-unstarted').status, 'pending', 'Admin can add a registered participant before their route starts');
+  assert.equal(await unstartedCard.getByRole('button', { name: 'Проверить', exact: true }).count(), 1, 'Admin inspection remains available beside friendship');
+  await preStartCommunity.getByTitle('Закрыть').first().click();
   assert.equal(cloud.has(oldPath), false, 'Old cloud history must be deleted for the owner');
   assert.equal(cloud.get(newPath).state, null, 'Reset must not auto-start');
   const startButton = page.getByRole('button', { name: 'Принимаю обязательства. Начать', exact: true });
@@ -412,7 +433,7 @@ try {
   await otherPage.getByRole('heading', { name: 'Правила пути', exact: true }).waitFor();
   assert.equal(cloud.get(otherPath).state, null, 'Member reset must remove the current journey');
   await otherContext.close();
-  console.log(JSON.stringify({ passed: true, checks: ['owner-only reset', 'six mandatory commitments', 'required purpose', '120 dates', 'single editable rules source', 'mobile add opens a step in the steps tab', 'immediate offline save and reload', 'cloud retry', 'live earned result', 'midnight auto-close', 'locked previous day', 'idempotent points', 'no repeated reset', 'step creation and focus', 'repeated executions with frozen points', 'steps statistics and reload', 'same account on another device', 'member account isolated', 'member journey reset', 'mobile and desktop overflow', 'no page errors', 'no sync write loop'], screenshots: output }, null, 2));
+  console.log(JSON.stringify({ passed: true, checks: ['friends before route start', 'owner-only reset', 'six mandatory commitments', 'required purpose', '120 dates', 'single editable rules source', 'mobile add opens a step in the steps tab', 'immediate offline save and reload', 'cloud retry', 'live earned result', 'midnight auto-close', 'locked previous day', 'idempotent points', 'no repeated reset', 'step creation and focus', 'repeated executions with frozen points', 'steps statistics and reload', 'same account on another device', 'member account isolated', 'member journey reset', 'mobile and desktop overflow', 'no page errors', 'no sync write loop'], screenshots: output }, null, 2));
 } finally {
   await browser.close();
 }

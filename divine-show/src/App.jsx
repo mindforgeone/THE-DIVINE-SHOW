@@ -145,7 +145,7 @@ function AccountApp({ authSession }) {
   if (authLoading) return <LoadingScreen text="Проверяю аккаунт" onRetry={() => window.location.reload()} />;
   if (!user) return <LoginScreen onSignIn={signIn} signingIn={signingIn} error={authError} />;
   if (!cloudReady) return <LoadingScreen key={user.uid} text="Загружаю историю" error={storageError} onRetry={retry} onLogOut={() => signOut(auth)} />;
-  if (!state?.contractAcceptedAt) return <StartScreen member={role !== 'admin'} history={history} onStart={startJourney} starting={starting} error={storageError} onRetry={retry} onLogOut={() => signOut(auth)} />;
+  if (!state?.contractAcceptedAt) return <StartScreen user={user} member={role !== 'admin'} history={history} incomingFriendRequests={incomingFriendRequests} onStart={startJourney} starting={starting} error={storageError} onRetry={retry} onLogOut={() => signOut(auth)} />;
   if (state.completedAt) return <FinishedJourney summary={state.completionSummary || buildMarathonSummary(state)} history={history} onStartNext={startNext} onLogOut={() => signOut(auth)} />;
   if (role !== 'admin') return <MemberApp user={user} state={state} commit={commit} currentDate={currentDate} syncState={syncState} incomingFriendRequests={incomingFriendRequests} onReset={resetJourney} onLogOut={() => signOut(auth)} />;
 
@@ -426,11 +426,12 @@ function LoginScreen({ onSignIn, signingIn, error }) {
   );
 }
 
-function StartScreen({ member = false, history, onStart, starting, error, onRetry, onLogOut }) {
+function StartScreen({ user, member = false, history, incomingFriendRequests = 0, onStart, starting, error, onRetry, onLogOut }) {
   const [checked, setChecked] = useState({});
   const [purpose, setPurpose] = useState('');
   const [durationDays, setDurationDays] = useState(TOTAL_DAYS);
   const [confirming, setConfirming] = useState(false);
+  const [communityOpen, setCommunityOpen] = useState(false);
   const commitments = member ? memberCommitmentsForDuration(durationDays) : commitmentsForDuration(durationDays);
   const acceptedCount = commitments.filter((item) => checked[item.id]).length;
   const acceptance = member ? acceptMemberCommitments : acceptCommitments;
@@ -446,7 +447,7 @@ function StartScreen({ member = false, history, onStart, starting, error, onRetr
       <section className="relative overflow-hidden" style={{ backgroundImage: `url(${journeyDawn})`, backgroundPosition: 'center', backgroundSize: 'cover' }}>
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(248,252,253,0.98)_0%,rgba(248,252,253,0.88)_48%,rgba(248,252,253,0.12)_100%)]" />
         <div className="relative mx-auto max-w-4xl px-5 py-10 sm:py-14">
-          <div className="flex items-center justify-between gap-3"><div className="text-sm font-black uppercase text-[#0d8fb9]">Мой осознанный выбор</div><button type="button" onClick={onLogOut} className="icon-command" title="Выйти"><LogOut size={18} /></button></div>
+          <div className="flex items-center justify-between gap-3"><div className="text-sm font-black uppercase text-[#0d8fb9]">Мой осознанный выбор</div><div className="flex items-center gap-2"><button type="button" onClick={() => setCommunityOpen(true)} className="relative inline-flex min-h-10 items-center gap-2 border border-[#b9dce8] bg-white/90 px-3 text-sm font-black text-[#0d6683] rounded-md"><Users size={17} />Друзья{incomingFriendRequests > 0 && <span className="grid h-5 min-w-5 place-items-center bg-[#d9405c] px-1 text-[10px] text-white rounded-full" aria-label={`${incomingFriendRequests} новых запросов`}>{incomingFriendRequests}</span>}</button><button type="button" onClick={onLogOut} className="icon-command" title="Выйти"><LogOut size={18} /></button></div></div>
           <h1 className="mt-4 max-w-xl text-4xl font-black leading-tight text-[#102a43] sm:text-5xl">{durationDays} дней перемен</h1>
           <p className="mt-4 max-w-xl text-lg font-semibold leading-7 text-slate-700">{member ? 'Свой план тела, питания и движения. Честные отметки, понятная динамика и поддержка без давления.' : 'Я выбираю свободу от старых привычек. Сильное тело, действия к цели и доверие к себе.'}</p>
           <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm font-bold text-[#16865f]">{member ? <><span>Свой целевой вес</span><span>Измеримый прогресс</span><span>Друзья и вызовы</span></> : <><span>65 кг · форма и энергия</span><span>Ценность в работе</span><span>Свобода проявляться</span></>}</div>
@@ -471,6 +472,7 @@ function StartScreen({ member = false, history, onStart, starting, error, onRetr
         {history.length > 0 && <MarathonHall items={history} />}
       </div>
       <AnimatePresence>{confirming && <SimpleConfirm title={`Начать ${durationDays} дней?`} text={`Все ${commitments.length} обязательств приняты. Мой смысл: «${purpose.trim()}». Старт: ${formatLongDate(todayKey())}.`} confirm="Да, начинаю" disabled={!accepted || starting} onConfirm={confirmStart} onClose={() => setConfirming(false)} />}</AnimatePresence>
+      {communityOpen && <div role="dialog" aria-modal="true" aria-label="Участники и друзья" className="fixed inset-0 z-50 overflow-y-auto bg-[#f4f7f8]"><header className="sticky top-0 z-10 border-b border-[#cfe0dc] bg-white/95 backdrop-blur-xl"><div className="mx-auto flex min-h-16 max-w-4xl items-center justify-between gap-3 px-4"><div><div className="text-xs font-black uppercase text-[#0d8b71]">До старта маршрута</div><div className="font-black text-[#102a43]">Общение уже доступно</div></div><button type="button" onClick={() => setCommunityOpen(false)} className="icon-command" title="Закрыть"><X size={19} /></button></div></header><main className="mx-auto max-w-4xl p-4 pb-10"><Suspense fallback={<div className="p-8 text-center font-black">Открываю пространство друзей…</div>}><CommunityModule user={user} /></Suspense></main></div>}
     </div>
   );
 }
