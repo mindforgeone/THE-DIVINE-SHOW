@@ -268,6 +268,18 @@ test('accepted cloud start cannot be replaced by a second device', () => {
   assert.equal(mergeStates(remote, duplicate).journeyId, remote.journeyId);
 });
 
+test('separate device ids for the same route merge instead of losing a closed phone day', () => {
+  const computer = makeState();
+  const phone = makeState();
+  computer.journeyId = 'computer-route';
+  phone.journeyId = 'phone-route';
+  phone.days[0] = { ...completeDay(phone), result: 'strong', score: 100, xp: 100, closureMode: 'manual', closedAt: EVENING };
+  const merged = mergeStates(computer, phone);
+  assert.equal(merged.journeyId, computer.journeyId);
+  assert.equal(merged.days[0].result, 'strong');
+  assert.equal(merged.days[0].weight, '69.6');
+});
+
 test('local save restores an unfinished entry and namespaces do not mix', () => {
   const memory = new Map();
   globalThis.localStorage = { getItem: (key) => memory.get(key) || null, setItem: (key, value) => memory.set(key, value) };

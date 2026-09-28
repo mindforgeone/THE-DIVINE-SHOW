@@ -374,11 +374,15 @@ export function mergeStates(remoteRaw, localRaw) {
   if (!remoteRaw) return normalizeState(localRaw);
   if (!localRaw) return normalizeState(remoteRaw);
   const remote = normalizeState(remoteRaw);
-  const local = normalizeState(localRaw);
+  let local = normalizeState(localRaw);
   if (!remote) return local;
   if (!local) return remote;
-  // The cloud's accepted start wins over a second device starting the same marathon.
-  if (remote.journeyId !== local.journeyId) return remote.contractAcceptedAt ? remote : local;
+  if (remote.journeyId !== local.journeyId) {
+    const sameJourneyWindow = remote.startDate === local.startDate && remote.durationDays === local.durationDays;
+    // Older devices could create separate ids for the same accepted route. Align those ids and merge their days.
+    if (sameJourneyWindow) local = { ...local, journeyId: remote.journeyId };
+    else return remote.contractAcceptedAt ? remote : local;
+  }
   const newer = timestamp(local) >= timestamp(remote) ? local : remote;
   return {
     ...remote,
