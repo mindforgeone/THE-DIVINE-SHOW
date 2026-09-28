@@ -4,8 +4,10 @@ import { db } from '../firebase';
 import { historyErrorMessage } from '../auth/errors';
 import { clearRequestedHistoryCache, resolveAccountStorage } from './accountStorage';
 import { buildMarathonSummary, clearCachedState, createInitialState, finalizePastDays, loadCachedState, mergeStates, saveCachedState, todayKey } from './model';
+import { cloudSyncAvailable } from './cloudSync';
+import { useWorkerMarathonStore } from './useWorkerMarathonStore';
 
-export function useMarathonStore(user) {
+function useLegacyMarathonStore(user) {
   const [state, setState] = useState(null);
   const [ready, setReady] = useState(false);
   const [ownerUid, setOwnerUid] = useState(null);
@@ -290,4 +292,11 @@ export function useMarathonStore(user) {
 
   const belongsToUser = user?.uid === ownerUid;
   return { state: belongsToUser ? state : null, history: belongsToUser ? history : [], ready: ready && belongsToUser, syncState, error, starting, currentDate, start, startNext: () => sessionRef.current?.startNext(), resetJourney, commit: (recipe) => sessionRef.current?.commit(recipe), retry: () => sessionRef.current?.retry() };
+}
+
+export function useMarathonStore(user) {
+  const workerEnabled = cloudSyncAvailable(user);
+  const workerStore = useWorkerMarathonStore(workerEnabled ? user : null);
+  const legacyStore = useLegacyMarathonStore(workerEnabled ? null : user);
+  return workerEnabled ? workerStore : legacyStore;
 }

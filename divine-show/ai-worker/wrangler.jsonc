@@ -9,6 +9,13 @@
   "ai": {
     "binding": "AI"
   },
+  "d1_databases": [
+    {
+      "binding": "SYNC_DB",
+      "database_name": "day-one-sync",
+      "database_id": "8e187fcf-f8c8-4484-b0c6-b7a9ae5a8e6f"
+    }
+  ],
   "vars": {
     "ADMIN_UID": "5CMckLFqiCPoPCBQLz1YqBkgVXs1",
     "FIREBASE_API_KEY": "AIzaSyDHVp0mEj1rvLdFXXnI3_0J_PVyt06_DX0",

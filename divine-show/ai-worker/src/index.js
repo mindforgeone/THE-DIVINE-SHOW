@@ -104,10 +104,72 @@ function corsHeaders(origin) {
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, PUT, POST, OPTIONS',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   };
+}
+
+const SYNC_RESOURCES = new Set(['marathon']);
+const MAX_SYNC_BYTES = 900_000;
+
+function parseStoredPayload(value) {
+  try {
+    return value ? JSON.parse(value) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readSyncRow(env, uid, resource) {
+  return env.SYNC_DB.prepare('SELECT revision, payload, updated_at FROM user_state WHERE uid = ?1 AND resource = ?2')
+    .bind(uid, resource)
+    .first();
+}
+
+function syncRowResponse(row, status, origin) {
+  return json({
+    payload: parseStoredPayload(row?.payload),
+    revision: Number(row?.revision || 0),
+    updatedAt: row?.updated_at || null,
+  }, status, origin);
+}
+
+async function handleSyncRequest(request, env, origin, firebaseUser, resource) {
+  if (!env.SYNC_DB) return json({ error: 'Облачное хранилище не настроено.' }, 503, origin);
+  if (!SYNC_RESOURCES.has(resource)) return json({ error: 'Неизвестный раздел синхронизации.' }, 404, origin);
+  const uid = firebaseUser.localId;
+  if (request.method === 'GET') return syncRowResponse(await readSyncRow(env, uid, resource), 200, origin);
+  if (request.method !== 'PUT') return json({ error: 'Используй GET или PUT.' }, 405, origin);
+
+  let body;
+  try {
+    const rawBody = await request.text();
+    if (new TextEncoder().encode(rawBody).byteLength > MAX_SYNC_BYTES) return json({ error: 'Состояние слишком большое для синхронизации.' }, 413, origin);
+    body = JSON.parse(rawBody);
+  } catch {
+    return json({ error: 'Некорректный JSON.' }, 400, origin);
+  }
+  const baseRevision = Number(body?.baseRevision);
+  if (!Number.isInteger(baseRevision) || baseRevision < 0 || !body || !Object.hasOwn(body, 'payload')) {
+    return json({ error: 'Некорректная версия синхронизации.' }, 400, origin);
+  }
+  const encoded = JSON.stringify(body.payload);
+  if (new TextEncoder().encode(encoded).byteLength > MAX_SYNC_BYTES) return json({ error: 'Состояние слишком большое для синхронизации.' }, 413, origin);
+
+  const current = await readSyncRow(env, uid, resource);
+  if (Number(current?.revision || 0) !== baseRevision) return syncRowResponse(current, 409, origin);
+  const updatedAt = new Date().toISOString();
+  const nextRevision = baseRevision + 1;
+  const result = current
+    ? await env.SYNC_DB.prepare('UPDATE user_state SET payload = ?1, revision = ?2, updated_at = ?3 WHERE uid = ?4 AND resource = ?5 AND revision = ?6')
+      .bind(encoded, nextRevision, updatedAt, uid, resource, baseRevision)
+      .run()
+    : await env.SYNC_DB.prepare('INSERT OR IGNORE INTO user_state (uid, resource, revision, payload, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)')
+      .bind(uid, resource, nextRevision, encoded, updatedAt)
+      .run();
+  if (Number(result.meta?.changes || 0) !== 1) return syncRowResponse(await readSyncRow(env, uid, resource), 409, origin);
+  return json({ revision: nextRevision, updatedAt }, 200, origin);
 }
 
 async function verifyFirebaseToken(token, env) {
@@ -201,12 +263,17 @@ export async function handleRequest(request, env) {
   const allowed = allowedOrigins(env);
   if (origin && !allowed.includes(origin)) return json({ error: 'Источник запроса не разрешён.' }, 403);
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(origin || allowed[0]) });
-  if (request.method !== 'POST') return json({ error: 'Используй POST.' }, 405, origin);
-  if (!env.AI || !env.FIREBASE_API_KEY || !env.ADMIN_UID) return json({ error: 'Сервер аналитика не настроен.' }, 503, origin);
+  if (!env.FIREBASE_API_KEY) return json({ error: 'Проверка аккаунта не настроена.' }, 503, origin);
   const auth = request.headers.get('Authorization') || '';
   if (!auth.startsWith('Bearer ')) return json({ error: 'Нужна авторизация.' }, 401, origin);
   const firebaseUser = await verifyFirebaseToken(auth.slice(7), env);
   if (!firebaseUser?.localId) return json({ error: 'Сессия недействительна.' }, 401, origin);
+
+  const syncMatch = new URL(request.url).pathname.match(/^\/sync\/v1\/([a-z-]+)$/);
+  if (syncMatch) return handleSyncRequest(request, env, origin, firebaseUser, syncMatch[1]);
+
+  if (request.method !== 'POST') return json({ error: 'Используй POST.' }, 405, origin);
+  if (!env.AI || !env.ADMIN_UID) return json({ error: 'Сервер аналитика не настроен.' }, 503, origin);
   if (firebaseUser.localId !== env.ADMIN_UID) return json({ error: 'Аналитик доступен только администратору.' }, 403, origin);
   let body;
   try {
