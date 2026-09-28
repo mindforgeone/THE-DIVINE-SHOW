@@ -68,7 +68,7 @@ export default function AiAnalyst({ user, state, stats, lifeState, stepsState })
         snapshotDigest: response.snapshotDigest || '',
         analysis: response.analysis,
       };
-      const saved = await saveReport(report);
+      const saved = saveReport(report);
       setNotice(saved.error || 'Разбор готов и сохранён.');
     } catch (failure) {
       setError(failure?.message || 'Не удалось получить разбор.');
@@ -135,7 +135,7 @@ function AnalysisReport({ report, syncState }) {
       <div><div className="text-xs font-black text-[#0d8fb9]">{report.periodLabel} · {formatGeneratedAt(report.generatedAt)}</div><h2 className="mt-1 text-2xl font-black">{analysis.headline}</h2></div>
       <div className="px-3 py-2 text-xs font-black rounded-md" style={{ color: status.color, background: status.background }}>{status.label}</div>
     </div>
-    <p className="mt-4 max-w-4xl text-base font-semibold leading-7 text-slate-600">{analysis.summary}</p>
+    <p className="mt-4 max-w-4xl whitespace-pre-line text-base font-semibold leading-7 text-slate-600">{analysis.summary}</p>
 
     <div className="mt-5 grid gap-3 lg:grid-cols-2">
       <ReportBlock title="Что видно по фактам" icon={<Gauge />}>

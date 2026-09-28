@@ -108,4 +108,10 @@ test('sync storage isolates by verified uid and rejects stale writes', async (t)
   const conflict = await handleRequest(new Request(endpoint, { method: 'PUT', headers, body: JSON.stringify({ baseRevision: 0, payload: { state: { journeyId: 'stale' } } }) }), syncEnv);
   assert.equal(conflict.status, 409);
   assert.equal((await conflict.json()).payload.state.journeyId, 'one');
+
+  const reportsEndpoint = 'https://worker.example/sync/v1/ai-reports';
+  const reportSaved = await handleRequest(new Request(reportsEndpoint, { method: 'PUT', headers, body: JSON.stringify({ baseRevision: 0, payload: { reports: [{ id: 'report-1', analysis: { headline: 'Факты' } }] } }) }), syncEnv);
+  assert.equal(reportSaved.status, 200);
+  const reportLoaded = await handleRequest(new Request(reportsEndpoint, { method: 'GET', headers }), syncEnv);
+  assert.equal((await reportLoaded.json()).payload.reports[0].id, 'report-1');
 });

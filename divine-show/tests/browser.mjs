@@ -159,6 +159,10 @@ try {
   assert.equal(cloud.get(newPath).state.days[0].result, null, 'Today remains editable');
   assert.equal(cloud.get(newPath).state.days[0].calories, '1850');
   await checkWidth(page, 'mobile daily form');
+  await page.getByTitle('Меню').click();
+  await page.getByText('Экспорт', { exact: true }).waitFor();
+  await page.getByText('Показатели тела', { exact: true }).click();
+  await page.getByText('Экспорт', { exact: true }).waitFor({ state: 'hidden' });
 
   await page.clock.setSystemTime(new Date('2026-09-07T10:00:00Z'));
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
@@ -195,7 +199,16 @@ try {
   await page.getByRole('heading', { name: 'Главные векторы', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Развитие', exact: true }).click();
   await page.getByRole('heading', { name: 'Карта развития', exact: true }).waitFor();
+  await page.getByText('Внедрение', { exact: true }).click();
   await page.getByText('Перенос в PROD', { exact: true }).first().waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await checkWidth(page, 'mobile course development');
+  await page.screenshot({ path: join(output, 'course-development-mobile.png'), fullPage: true });
+  await page.locator('button[title="Добавить доказательство"]:visible').first().click();
+  await page.getByRole('dialog').waitFor();
+  await checkWidth(page, 'mobile course evidence editor');
+  await page.getByRole('dialog').getByTitle('Закрыть').click();
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole('button', { name: 'Желания', exact: true }).click();
   await page.getByRole('heading', { name: 'Карта желаний', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Персонаж', exact: true }).click();
@@ -207,13 +220,19 @@ try {
   await checkWidth(page, 'desktop course');
   await page.getByRole('button', { name: 'План', exact: true }).last().click();
   await page.getByRole('heading', { name: 'От маршрута до сегодняшнего шага', exact: true }).waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await checkWidth(page, 'mobile planning');
   await page.getByRole('button', { name: 'Добавить', exact: true }).click();
   const planDialog = page.getByRole('dialog', { name: 'План' });
+  await checkWidth(page, 'mobile planning editor');
   await planDialog.getByRole('textbox', { name: 'Результат', exact: true }).fill('Провести 10 аналитик');
   await planDialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await page.getByText('Провести 10 аналитик', { exact: true }).waitFor();
   await page.getByRole('button', { name: /Календарь/ }).click();
   await page.getByText('За эту дату пока нет событий.', { exact: true }).waitFor();
+  await checkWidth(page, 'mobile planning calendar');
+  await page.screenshot({ path: join(output, 'planning-mobile.png'), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await checkWidth(page, 'desktop planning');
   await page.screenshot({ path: join(output, 'planning-desktop.png'), fullPage: true });
   await page.getByRole('button', { name: 'Итоги', exact: true }).last().click();

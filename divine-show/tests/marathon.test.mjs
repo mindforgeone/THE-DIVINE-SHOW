@@ -113,6 +113,21 @@ test('complete current day earns color and points without locking or clicking sa
   assert.match(buildExport(state, stats).markdown, /100/);
 });
 
+test('perfect score comes only from rules and required metrics, while custom rules affect it immediately', () => {
+  const state = makeState();
+  const withoutReflection = completeDay(state, 0, { evidence: '', actions: [], courageMoments: [] });
+  const perfect = evaluateDay(withoutReflection, state.goals, state.dayCriteria, state.resultThresholds, state.codexRules);
+  assert.equal(perfect.score, 100);
+  assert.deepEqual(perfect.breakdown.rules, { score: 60, maximum: 60, passed: 4, total: 4 });
+  assert.deepEqual(perfect.breakdown.metrics, { score: 40, maximum: 40, passed: 4, total: 4 });
+  assert.deepEqual(perfect.missingForPerfect, []);
+
+  const customRule = { ...state.codexRules[0], id: 'pushups', title: 'Отжимания', critical: false };
+  const withCustomRule = evaluateDay(withoutReflection, state.goals, state.dayCriteria, state.resultThresholds, [...state.codexRules, customRule]);
+  assert.equal(withCustomRule.score, 88);
+  assert.match(withCustomRule.missingForPerfect[0], /Отжимания/);
+});
+
 test('today shows only daily goals until optional ones are picked, and selection merges across devices', () => {
   const state = makeState();
   const day = state.days[0];
@@ -179,7 +194,7 @@ test('empty, invalid or unfinished entries never silently become a green day', (
     assert.equal(finalizePastDays(state, '2026-09-07', NEXT).days[0].result, null);
   }
   state.days[0] = completeDay(state, 0, { steps: '0', activeCalories: '0' });
-  assert.equal(finalizePastDays(state, '2026-09-07', NEXT).days[0].result, 'steady');
+  assert.equal(finalizePastDays(state, '2026-09-07', NEXT).days[0].result, 'strong');
   state.days[0] = completeDay(state, 0, { evidence: '' });
   assert.notEqual(finalizePastDays(state, '2026-09-07', NEXT).days[0].result, null, 'Optional reflection must not block the day');
 });

@@ -7,7 +7,7 @@ export const ANALYSIS_SCHEMA = {
     headline: { type: 'string' },
     summary: { type: 'string' },
     facts: {
-      type: 'array', minItems: 2, maxItems: 6,
+      type: 'array', minItems: 3, maxItems: 8,
       items: {
         type: 'object', additionalProperties: false,
         required: ['title', 'observation', 'evidence'],
@@ -19,7 +19,7 @@ export const ANALYSIS_SCHEMA = {
       },
     },
     dynamics: {
-      type: 'array', minItems: 1, maxItems: 6,
+      type: 'array', minItems: 2, maxItems: 6,
       items: {
         type: 'object', additionalProperties: false,
         required: ['area', 'trend', 'observation'],
@@ -31,7 +31,7 @@ export const ANALYSIS_SCHEMA = {
       },
     },
     hypotheses: {
-      type: 'array', minItems: 1, maxItems: 4,
+      type: 'array', minItems: 2, maxItems: 5,
       items: {
         type: 'object', additionalProperties: false,
         required: ['hypothesis', 'confidence', 'evidence', 'howToVerify'],
@@ -73,6 +73,10 @@ export function buildSystemPrompt() {
     'Правило 7700 ккал на килограмм и активные калории являются приближениями. Указывай это при выводах о весе.',
     'Не называй вес застоем, если поле plateau равно false. Суточные колебания веса не трактуй как набор жира.',
     'Сначала оцени качество данных. Затем найди динамику, повторяющиеся условия сильных дней и расхождения между ожиданием и фактом.',
+    'Сопоставь все доступные блоки снимка: результаты дней, вес, калории, энергобаланс, активность, шаги, правила дня, победы, действия, ситуации тревоги, недельные итоги, цели, планы и развитие. Не пропускай заполненный блок без объяснения.',
+    'Summary пиши как живой связный разбор на 5–8 предложений: что происходит, почему это важно и на что разумно опереться дальше. Не пиши телеграфными лозунгами.',
+    'В наблюдениях не просто повторяй цифру: объясняй её практический смысл. Там, где доступен предыдущий период, явно сравнивай с ним.',
+    'Отмечай реальный вклад пользователя и уже сделанное, но только с опорой на конкретные записи. Разговаривай по-человечески, без канцелярита и искусственной похвалы.',
     'Статус insufficient_data используй только если заполнено меньше 3 дней. При 3 и более днях выбери on_track или attention по фактам.',
     'Гипотезы ранжируй по уверенности и для каждой предлагай способ проверки следующими наблюдениями.',
     'Дай не больше трёх приоритетов. Каждый приоритет должен содержать конкретное действие и проверяемую метрику.',
@@ -110,7 +114,7 @@ function corsHeaders(origin) {
   };
 }
 
-const SYNC_RESOURCES = new Set(['marathon']);
+const SYNC_RESOURCES = new Set(['marathon', 'ai-reports']);
 const MAX_SYNC_BYTES = 900_000;
 
 function parseStoredPayload(value) {
@@ -230,7 +234,7 @@ async function runWorkersModel(model, snapshot, env) {
       { role: 'user', content: `Проведи анализ этого проверенного снимка данных:\n${JSON.stringify(snapshot)}` },
     ],
     temperature: 0.2,
-    max_tokens: 5000,
+    max_tokens: 6500,
     response_format: {
       type: 'json_schema',
       json_schema: ANALYSIS_SCHEMA,

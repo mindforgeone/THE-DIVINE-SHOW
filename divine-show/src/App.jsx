@@ -156,7 +156,8 @@ function AccountApp({ authSession }) {
   const selectedDay = state.days[selectedIndex];
   const journeyEnded = isJourneyEnded(state.startDate, durationDays);
   const editable = selectedIndex === currentDayIndex && !selectedDay.result && !journeyEnded;
-  const evaluation = selectedDay.result ? { ...DAY_RESULTS[selectedDay.result], score: selectedDay.score, canClose: true, blockers: [] } : evaluateDay(selectedDay, state.goals, state.dayCriteria, state.resultThresholds, state.codexRules);
+  const calculatedEvaluation = evaluateDay(selectedDay, state.goals, state.dayCriteria, state.resultThresholds, state.codexRules);
+  const evaluation = selectedDay.result ? { ...calculatedEvaluation, ...DAY_RESULTS[selectedDay.result], score: selectedDay.score, xp: selectedDay.xp, canClose: true, blockers: [] } : calculatedEvaluation;
   const stats = calculateStats(state, currentDayIndex, range);
   const exportData = buildExport(state, stats);
   const completedWeeks = Math.floor(currentDayNumber / 7);
@@ -513,6 +514,22 @@ function CommitmentSummary({ commitments, totalDays }) {
 
 function CompactHeader({ user, avatarUrl, currentDay, totalDays, progress, syncState, view, incomingFriendRequests, onView, onExport, onReset, onLogOut }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const closeOutside = (event) => {
+      if (!menuRef.current?.contains(event.target)) setMenuOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [menuOpen]);
   return (
     <header className="sticky top-0 z-40 border-b border-[#d9e4e8] bg-white/95 backdrop-blur-xl">
       <div className="mx-auto flex min-h-[64px] max-w-7xl items-center gap-3 px-3 sm:px-5 lg:px-7">
@@ -533,7 +550,7 @@ function CompactHeader({ user, avatarUrl, currentDay, totalDays, progress, syncS
         </div>
         <span role="status" aria-label={syncState === 'offline' ? 'Сохранено на устройстве, ожидает синхронизации' : syncState === 'saving' ? 'Сохраняю в облако' : 'Сохранено в облаке'} className={`h-2.5 w-2.5 shrink-0 rounded-full ${syncState === 'offline' ? 'bg-rose-500' : syncState === 'saving' ? 'animate-pulse bg-amber-400' : 'bg-emerald-500'}`} title={syncState === 'offline' ? 'Сохранено на устройстве' : syncState === 'saving' ? 'Сохраняю в облако' : 'Сохранено в облаке'} />
         {avatarUrl ? <img src={avatarUrl} alt={user.displayName || 'Аватар'} className="h-10 w-10 shrink-0 border border-[#d9e4e8] bg-[#edf4f6] object-cover rounded-md" title={user.displayName || user.email || 'Профиль'} /> : <span className="grid h-10 w-10 shrink-0 place-items-center bg-[#eaf8fd] font-black text-[#0d7ea5] rounded-md" title={user.email || 'Профиль'}>{(user.displayName || user.email || 'Я').trim().charAt(0).toUpperCase()}</span>}
-        <div className="relative">
+        <div ref={menuRef} className="relative">
           <button type="button" onClick={() => setMenuOpen((value) => !value)} className="grid h-10 w-10 place-items-center border border-[#d9e4e8] bg-white text-slate-700 rounded-md" title="Меню"><Menu size={19} /></button>
           <AnimatePresence>{menuOpen && <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} className="absolute right-0 top-12 z-50 w-56 border border-[#d9e4e8] bg-white p-2 shadow-xl rounded-lg"><MenuItem icon={<Download size={16} />} label="Экспорт" onClick={() => { onExport(); setMenuOpen(false); }} /><MenuItem icon={<RotateCcw size={16} />} label="Сбросить маршрут" onClick={() => { onReset(); setMenuOpen(false); }} danger /><MenuItem icon={<LogOut size={16} />} label="Выйти" onClick={onLogOut} /></motion.div>}</AnimatePresence>
         </div>
@@ -673,6 +690,8 @@ function DailyEditor(props) {
 
         <section className="border border-[#d8e3e7] bg-white p-4 rounded-lg">
           <div className="flex items-center justify-between gap-3"><div><div className="text-xs font-black uppercase tracking-wide text-slate-500">Результат дня</div><div className="mt-1 text-2xl font-black" style={{ color: evaluation.color }}>{evaluation.title}</div></div><div className="grid h-14 w-14 place-items-center border-4 text-sm font-black rounded-full" style={{ borderColor: evaluation.color, color: evaluation.color }}>{evaluation.score}%</div></div>
+          {evaluation.breakdown && <div className="mt-3 grid grid-cols-2 gap-2"><ScorePart label="Правила" value={evaluation.breakdown.rules} /><ScorePart label="Показатели" value={evaluation.breakdown.metrics} /></div>}
+          {evaluation.score === 100 ? <div className="mt-3 flex items-start gap-2 bg-[#ecfbf3] p-3 text-xs font-black leading-5 text-[#16865f] rounded-md"><CheckCircle2 size={16} className="mt-0.5 shrink-0" />100%: все правила соблюдены и обязательные показатели выполнены.</div> : evaluation.missingForPerfect?.length > 0 && <div className="mt-3 border border-[#efd49f] bg-[#fff8e9] p-3 rounded-md"><div className="text-xs font-black text-[#8a5815]">До 100% осталось:</div><div className="mt-1 grid gap-1">{evaluation.missingForPerfect.map((item) => <div key={item} className="text-xs font-bold leading-5 text-[#735426]">{item}</div>)}</div></div>}
           {editable && <p role="status" className="mt-3 text-sm leading-6 text-slate-600">{evaluation.canClose ? `${evaluation.xp} очков уже учтены. Сегодня можно дополнять записи; при смене даты день закроется автоматически с итоговым результатом.` : hasDayData(day) ? 'Введённое сохраняется автоматически. Остальные поля можно заполнить в течение дня.' : 'Каждая отметка сохраняется сразу.'}</p>}
           {day.closureMode === 'automatic' && <p className="mt-3 text-sm font-semibold text-[#16865f]">Закрыт автоматически по сохранённым данным · {day.xp} очков</p>}
           {!editable && !day.result && hasDayData(day) && <p className="mt-3 text-sm text-slate-600">Сохранено частично. Все введённые показатели остались в истории и статистике.</p>}
@@ -684,6 +703,10 @@ function DailyEditor(props) {
       </div>
     </div>
   );
+}
+
+function ScorePart({ label, value }) {
+  return <div className="border border-[#e1e9ec] bg-[#f7f9fa] p-2.5 rounded-md"><div className="flex items-center justify-between gap-2 text-xs font-black text-slate-500"><span>{label}</span><span className="text-[#102a43]">{value.score}/{value.maximum}</span></div><div className="mt-2 h-1.5 overflow-hidden bg-[#e1e9ec] rounded-sm"><div className="h-full bg-[#16a36a]" style={{ width: `${value.maximum ? value.score / value.maximum * 100 : 100}%` }} /></div></div>;
 }
 
 function Section({ title, eyebrow, icon, action, tone = 'blue', children }) {

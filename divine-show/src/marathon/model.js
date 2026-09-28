@@ -213,7 +213,7 @@ export function createInitialState(startDate = todayKey(), acceptedAt = null, co
   const now = new Date().toISOString();
   const duration = normalizeDuration(durationDays);
   return {
-    version: 12,
+    version: 13,
     resetGeneration: '2026-09-24-life-platform-v1',
     journeyId: createId('journey'),
     durationDays: duration,
@@ -260,10 +260,10 @@ export function normalizeState(raw) {
   if (!raw?.startDate || Number(raw.version || 0) < 9) return null;
   const durationDays = normalizeDuration(raw.durationDays || raw.days?.length || TOTAL_DAYS);
   const base = createInitialState(raw.startDate, raw.contractAcceptedAt || null, raw.commitments || null, durationDays);
-  return {
+  const normalized = {
     ...base,
     ...raw,
-    version: 12,
+    version: 13,
     durationDays,
     profile: { ...PROFILE_DEFAULTS, ...(raw.profile || {}) },
     dayCriteria: Array.isArray(raw.dayCriteria) ? raw.dayCriteria.map((item) => ({ ...item, active: item.active !== false, required: Boolean(item.required), weight: Math.max(0, number(item.weight)), target: number(item.target) })) : base.dayCriteria,
@@ -305,6 +305,16 @@ export function normalizeState(raw) {
     careerDecision: { status: 'pending', decidedAt: null, ...(raw.careerDecision || {}) },
     finalReview: { ...base.finalReview, ...(raw.finalReview || {}) },
   };
+  if (Number(raw.version || 0) < 13) {
+    normalized.days = normalized.days.map((day) => {
+      if (!day.result) return day;
+      const recalculated = evaluateDay(day, normalized.goals, normalized.dayCriteria, normalized.resultThresholds, normalized.codexRules);
+      return recalculated.canClose
+        ? { ...day, result: recalculated.id, score: recalculated.score, xp: recalculated.xp }
+        : day;
+    });
+  }
+  return normalized;
 }
 
 function timestamp(item) {
@@ -514,12 +524,32 @@ export function evaluateDay(day, goals, criteria = DEFAULT_DAY_CRITERIA, thresho
   const canClose = allDailyAnswered && healthComplete && (!evidenceRequired || evidenceComplete) && actionsComplete && courageComplete && returnComplete;
   const actionCount = (day.actions || []).filter(isActionComplete).length;
   const courageCount = (day.courageMoments || []).filter(isCourageComplete).length;
-  const criteriaWeight = criterionState.reduce((sum, item) => sum + number(item.criterion.weight), 0);
-  const criteriaScore = criterionState.reduce((sum, item) => sum + (item.passed ? number(item.criterion.weight) : 0), 0);
+  const scoredCriteria = criterionState.filter((item) => item.criterion.required);
+  const criteriaWeight = scoredCriteria.reduce((sum, item) => sum + number(item.criterion.weight), 0);
+  const criteriaScore = scoredCriteria.reduce((sum, item) => sum + (item.passed ? number(item.criterion.weight) : 0), 0);
   const codexPassed = codexState.filter((item) => item.passed).length;
-  const dailyScore = useCodex ? (codexPassed / codexState.length) * 50 : dailyBinary.length ? (kept.length / dailyBinary.length) * 30 : 30;
-  const criteriaShare = useCodex ? 40 : 60;
-  const score = Math.min(100, Math.round(dailyScore + (criteriaWeight ? criteriaScore / criteriaWeight * criteriaShare : criteriaShare) + Math.min(10, actionCount * 5 + courageCount * 5)));
+  const rulesMaximum = 60;
+  const criteriaMaximum = 40;
+  const rulesScore = useCodex
+    ? (codexPassed / codexState.length) * rulesMaximum
+    : dailyBinary.length
+      ? (kept.length / dailyBinary.length) * rulesMaximum
+      : rulesMaximum;
+  const metricsScore = criteriaWeight ? (criteriaScore / criteriaWeight) * criteriaMaximum : criteriaMaximum;
+  const score = Math.min(100, Math.round(rulesScore + metricsScore));
+  const conditionText = (criterion) => criterion.operator === 'max'
+    ? `${criterion.label}: не больше ${criterion.target}`
+    : criterion.operator === 'text'
+      ? `${criterion.label}: заполни запись`
+      : `${criterion.label}: минимум ${criterion.target}`;
+  const missingForPerfect = [
+    ...codexState.filter((item) => !item.passed).map((item) => item.answered ? `Исправить: ${item.rule.title}` : `Отметить: ${item.rule.title}`),
+    ...scoredCriteria.filter((item) => !item.passed).map((item) => conditionText(item.criterion)),
+  ];
+  const breakdown = {
+    rules: { score: Math.round(rulesScore), maximum: rulesMaximum, passed: codexPassed, total: useCodex ? codexState.length : dailyBinary.length },
+    metrics: { score: Math.round(metricsScore), maximum: criteriaMaximum, passed: scoredCriteria.filter((item) => item.passed).length, total: scoredCriteria.length },
+  };
   const blockers = [];
   if (!allDailyAnswered) blockers.push(useCodex ? `Отметь правила дня (${codexState.filter((item) => item.answered).length}/${codexState.filter((item) => item.rule.required !== false).length})` : `Отметь ежедневные цели (${answered.length}/${dailyBinary.length})`);
   criterionState.filter((item) => item.criterion.required && !item.answered).forEach((item) => blockers.push(`Заполни: ${item.criterion.label}`));
@@ -527,11 +557,11 @@ export function evaluateDay(day, goals, criteria = DEFAULT_DAY_CRITERIA, thresho
   if (!actionsComplete) blockers.push('Заверши или удали добавленный факт действия');
   if (!courageComplete) blockers.push('Заверши или удали добавленную ситуацию');
   if (!returnComplete) blockers.push('Коротко зафиксируй контекст возврата');
-  if (!canClose) return { id: 'draft', title: 'День в процессе', short: 'Черновик', xp: 0, score, canClose, blockers, color: '#94a3b8', pale: '#f1f5f9' };
+  if (!canClose) return { id: 'draft', title: 'День в процессе', short: 'Черновик', xp: 0, score, canClose, blockers, missingForPerfect, breakdown, color: '#94a3b8', pale: '#f1f5f9' };
   const codexRate = useCodex ? codexPassed / codexState.length : 1;
   let result = coreBroken || codexRate < 0.5 || score < number(thresholds.steady) ? DAY_RESULTS.return : score >= number(thresholds.strong) ? DAY_RESULTS.strong : DAY_RESULTS.steady;
   if (!coreBroken && score >= number(thresholds.expansion) && (actionCount > 0 || courageCount > 0)) result = DAY_RESULTS.expansion;
-  return { ...result, score, canClose, blockers: [] };
+  return { ...result, score, canClose, blockers: [], missingForPerfect, breakdown };
 }
 
 function isValidMetric(value, minimum) {
