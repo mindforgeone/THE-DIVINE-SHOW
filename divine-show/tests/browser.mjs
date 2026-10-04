@@ -208,6 +208,13 @@ try {
   assert.equal(cloud.get(newPath).state.days[0].xp, 100);
   await page.getByRole('button', { name: 'Статистика', exact: true }).last().click();
   await page.getByRole('heading', { name: 'Что меняется по фактам', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Дефицит виден по дням и неделям', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Год', exact: true }).click();
+  await page.getByText('Январь', { exact: true }).waitFor();
+  await checkWidth(page, 'mobile yearly energy calendar');
+  await page.getByRole('button', { name: 'Месяц', exact: true }).click();
+  await page.getByRole('button', { name: /Сентябрь 2026/ }).waitFor();
+  assert.equal(await page.getByText(/NaN/).count(), 0, 'Partial calendar weeks must never produce invalid totals');
   await checkWidth(page, 'mobile statistics');
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.screenshot({ path: join(output, 'statistics-desktop.png'), fullPage: true });

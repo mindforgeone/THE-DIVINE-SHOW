@@ -9,6 +9,7 @@ import { START_COMMITMENTS, acceptCommitments, commitmentsForDuration } from '..
 import { resolveAccountStorage } from '../src/marathon/accountStorage.js';
 import { mergeParticipantProfiles } from '../src/community/participantDirectory.js';
 import { migrateMemberState } from '../src/member/memberRules.js';
+import { buildEnergyOverview, buildMonthEnergyCalendar, ENERGY_KCAL_PER_KG } from '../src/stats/energyCalendarModel.js';
 import {
   loadFriendRequestOutbox,
   loadIncomingFriendRequests,
@@ -64,6 +65,35 @@ test('participant directory survives an empty public profile collection', () => 
   assert.equal(profiles.length, 1);
   assert.equal(profiles.find((profile) => profile.role === 'admin').displayName, 'Stopmenlaser');
   assert.equal(profiles.some((profile) => profile.displayName === 'Ксения Борисова'), false);
+});
+
+test('energy calendar groups Monday weeks and keeps journey and goal totals explicit', () => {
+  const state = makeState();
+  for (let index = 0; index < 8; index += 1) {
+    state.days[index] = {
+      ...state.days[index],
+      weight: '70',
+      calories: '1800',
+      activeCalories: '400',
+    };
+  }
+  const dailyBalance = 1800 - (10 * 70 + 6.25 * 167 - 5 * 39 + 5) - 400;
+  const overview = buildEnergyOverview(state, '2026-09-13');
+  assert.equal(overview.week.recorded, 7);
+  assert.equal(overview.week.total, Math.round(dailyBalance) * 7);
+  assert.equal(overview.month.recorded, 8);
+  assert.equal(overview.journey.total, Math.round(dailyBalance) * 8);
+  assert.equal(overview.targetKcal, (70 - 65) * ENERGY_KCAL_PER_KG);
+  assert.equal(overview.remainingKcal, overview.targetKcal + overview.journey.total);
+
+  const calendar = buildMonthEnergyCalendar(state, '2026-09-13', '2026-09-13');
+  assert.equal(calendar.weeks[0].start, '2026-08-31');
+  assert.equal(calendar.weeks[0].recorded, 1);
+  assert.equal(calendar.weeks[0].total, Math.round(dailyBalance));
+  assert.equal(Number.isFinite(calendar.weeks[0].estimatedKg), true);
+  assert.equal(calendar.weeks[1].start, '2026-09-07');
+  assert.equal(calendar.weeks[1].recorded, 7);
+  assert.equal(calendar.weeks[1].total, overview.week.total);
 });
 
 test('member migration exposes only the three member defaults and keeps custom rules', () => {

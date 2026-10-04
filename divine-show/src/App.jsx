@@ -52,6 +52,7 @@ import MemberApp from './member/MemberApp';
 import DayDetailsModal from './marathon/DayDetailsModal';
 import { usePublicProfileSync } from './community/usePublicProfileSync';
 import { useFriendRequestNotifications } from './community/useFriendRequestNotifications';
+import EnergyCalendar from './stats/EnergyCalendar';
 import { CodexPanel, CodexStats, EventsPanel, FocusActions, PatternsPanel } from './life/LifePanels';
 import { acceptCommitments, acceptMemberCommitments, commitmentsForDuration, memberCommitmentsForDuration } from './marathon/commitments';
 import journeyDawn from './assets/journey-dawn.jpg';
@@ -365,6 +366,7 @@ function AccountApp({ authSession }) {
             onProfileChange={updateProfile}
             onScoringChange={updateScoring}
             totalDays={durationDays}
+            currentDate={currentDate}
           />
         ) : view === 'finance' ? (
           <Suspense fallback={<div className="p-8 text-center font-black">Открываю финансовый штаб…</div>}>
@@ -764,7 +766,7 @@ function FinalReview({ review, totalDays, required, disabled, onChange }) {
   return <Section title={`День ${totalDays}: итог пути`} eyebrow={required ? 'Собери то, что теперь останется с тобой' : 'Финал собран'} icon={<Trophy />} tone="coral"><div className="grid gap-2"><ReflectionInput label="Что изменилось в теле и энергии?" value={review.body} disabled={disabled} onChange={(body) => onChange({ body })} /><ReflectionInput label="Что произошло с работой и професиональной ценностью?" value={review.career} disabled={disabled} onChange={(career) => onChange({ career })} /><ReflectionInput label="Какими действиями я доказал себе право быть собой?" value={review.identity} disabled={disabled} onChange={(identity) => onChange({ identity })} /><ReflectionInput label="Какой следующий путь я выбираю?" value={review.next} disabled={disabled} onChange={(next) => onChange({ next })} /></div></Section>;
 }
 
-function StatsDashboard({ user, state, stats, lifeState, stepsState, lifeCommit, codexCommit, range, totalDays, onRange, onProfileChange, onScoringChange }) {
+function StatsDashboard({ user, state, stats, lifeState, stepsState, lifeCommit, codexCommit, range, totalDays, currentDate, onRange, onProfileChange, onScoringChange }) {
   const [section, setSection] = useState('metrics');
   const weightRemaining = stats.lastWeight ? Math.max(0, stats.lastWeight - number(state.profile.targetWeight)) : null;
   return (
@@ -775,6 +777,8 @@ function StatsDashboard({ user, state, stats, lifeState, stepsState, lifeCommit,
       {section === 'analyst' && <Suspense fallback={<div className="border border-[#d8e3e7] bg-white p-8 text-center font-black rounded-lg">Готовлю аналитика…</div>}><AiAnalyst user={user} state={state} stats={stats} lifeState={lifeState} stepsState={stepsState} /></Suspense>}
       {section === 'metrics' && <>
       <section className="grid grid-cols-2 gap-2 lg:grid-cols-5"><SummaryCard label="До 65 кг" value={weightRemaining === null ? 'Нужен вес' : `${weightRemaining.toFixed(1)} кг`} color="#16a36a" /><SummaryCard label="Энергобаланс" value={`${stats.avgBalance > 0 ? '+' : ''}${stats.avgBalance} ккал`} color="#f06c5f" /><SummaryCard label="Действия" value={stats.allActions.length} color="#0d8fb9" /><SummaryCard label="Рефлексия" value={`${stats.reflectionRate}%`} color="#d55784" /><SummaryCard label="Задачи" value={`${stats.tasksDone}/${stats.tasksDone + stats.tasksOpen}`} color="#7c63d6" /></section>
+
+      <EnergyCalendar state={state} currentDate={currentDate} />
 
       <WeightProjection projection={stats.weightProjection} startDate={state.startDate} totalDays={totalDays} />
 
